@@ -19,7 +19,8 @@ import {
   Trash2,
   Phone,
   Mail,
-  Filter
+  Filter,
+  Users
 } from "lucide-react"
 import { 
   Card, 
