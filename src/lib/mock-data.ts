@@ -27,6 +27,17 @@ export interface PaymentRecord {
   status: 'completado' | 'pendiente';
 }
 
+export interface ClassSchedule {
+  id: string;
+  subject: string;
+  teacher: string;
+  room: string;
+  startTime: string;
+  endTime: string;
+  dayOfWeek: string;
+  color: string;
+}
+
 export const MOCK_STUDENTS: Student[] = [
   {
     id: '1',
@@ -103,10 +114,63 @@ export const MOCK_PAYMENTS: PaymentRecord[] = [
   {
     id: 'p3',
     studentId: '3',
-    studentName: 'Mensualidad Enero',
+    studentName: 'Valentina Martínez Sosa',
     feeName: 'Mensualidad Enero',
     amount: 3500,
     date: '2024-01-02',
     status: 'pendiente',
+  },
+];
+
+export const MOCK_SCHEDULES: ClassSchedule[] = [
+  {
+    id: 's1',
+    subject: 'Matemáticas',
+    teacher: 'Prof. Martínez',
+    room: 'Aula 101',
+    startTime: '08:00',
+    endTime: '09:30',
+    dayOfWeek: 'Lunes',
+    color: 'bg-blue-100 border-blue-400 text-blue-700',
+  },
+  {
+    id: 's2',
+    subject: 'Lenguaje y Comunicación',
+    teacher: 'Profa. Sánchez',
+    room: 'Aula 102',
+    startTime: '09:30',
+    endTime: '11:00',
+    dayOfWeek: 'Lunes',
+    color: 'bg-emerald-100 border-emerald-400 text-emerald-700',
+  },
+  {
+    id: 's3',
+    subject: 'Ciencias Naturales',
+    teacher: 'Prof. Gómez',
+    room: 'Laboratorio A',
+    startTime: '11:30',
+    endTime: '13:00',
+    dayOfWeek: 'Martes',
+    color: 'bg-amber-100 border-amber-400 text-amber-700',
+  },
+  {
+    id: 's4',
+    subject: 'Historia de México',
+    teacher: 'Profa. Díaz',
+    room: 'Aula 201',
+    startTime: '08:00',
+    endTime: '09:30',
+    dayOfWeek: 'Miércoles',
+    color: 'bg-purple-100 border-purple-400 text-purple-700',
+  },
+  {
+    id: 's5',
+    subject: 'Educación Física',
+    teacher: 'Prof. Ruiz',
+    room: 'Patio Central',
+    startTime: '10:00',
+    endTime: '11:30',
+    dayOfWeek: 'Jueves',
+    color: 'bg-orange-100 border-orange-400 text-orange-700',
   },
 ];

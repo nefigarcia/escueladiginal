@@ -11,7 +11,8 @@ import {
   MessageSquare, 
   ShieldCheck, 
   LayoutDashboard,
-  GraduationCap
+  GraduationCap,
+  CalendarDays
 } from "lucide-react"
 
 import {
@@ -31,6 +32,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 const navItems = [
   { name: "Inicio", icon: LayoutDashboard, href: "/" },
   { name: "Estudiantes", icon: Users, href: "/estudiantes" },
+  { name: "Horarios y Clases", icon: CalendarDays, href: "/clases" },
   { name: "Config. Tarifas", icon: Settings, href: "/tarifas" },
   { name: "Pagos y Finanzas", icon: CreditCard, href: "/pagos" },
   { name: "Reportes", icon: BarChart3, href: "/reportes" },
