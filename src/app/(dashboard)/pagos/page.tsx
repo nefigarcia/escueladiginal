@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -27,6 +26,11 @@ import { collection, doc, serverTimestamp, query, where, limit } from "firebase/
 
 export default function PagosPage() {
   const { firestore } = useFirestore()
+  const [mounted, setMounted] = React.useState(false)
+  
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
   
   const studentsRef = useMemoFirebase(() => firestore ? collection(firestore, "students") : null, [firestore])
   const feeTypesRef = useMemoFirebase(() => firestore ? collection(firestore, "fee_types") : null, [firestore])
@@ -117,6 +121,8 @@ export default function PagosPage() {
       setIsProcessing(false)
     }
   }
+
+  if (!mounted) return null
 
   return (
     <div className="space-y-6">

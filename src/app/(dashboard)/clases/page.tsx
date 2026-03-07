@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -37,7 +36,12 @@ const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 export default function ClasesPage() {
   const { firestore } = useFirestore()
+  const [mounted, setMounted] = React.useState(false)
   
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const schedulesRef = useMemoFirebase(() => {
     if (!firestore) return null;
     return collection(firestore, "schedules");
@@ -45,7 +49,7 @@ export default function ClasesPage() {
   
   const { data: schedules, isLoading } = useCollection(schedulesRef)
 
-  const [date, setDate] = React.useState<Date | undefined>(new Date())
+  const [date, setDate] = React.useState<Date | undefined>(undefined)
   const [selectedDay, setSelectedDay] = React.useState("Lunes")
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
 
@@ -57,6 +61,13 @@ export default function ClasesPage() {
     endTime: "09:30",
     dayOfWeek: "Lunes",
   })
+
+  // Initialize date on mount to avoid hydration mismatch
+  React.useEffect(() => {
+    if (mounted && !date) {
+      setDate(new Date())
+    }
+  }, [mounted, date])
 
   const handleAddClass = async () => {
     if (!newClass.subject || !newClass.teacher || !schedulesRef) return
@@ -101,6 +112,8 @@ export default function ClasesPage() {
   }
 
   const dailySchedules = (schedules || []).filter(s => s.dayOfWeek === selectedDay)
+
+  if (!mounted) return null
 
   return (
     <div className="space-y-6">

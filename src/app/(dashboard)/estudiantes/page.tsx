@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -52,6 +51,11 @@ import { collection, doc, serverTimestamp } from "firebase/firestore"
 
 export default function EstudiantesPage() {
   const { firestore } = useFirestore()
+  const [mounted, setMounted] = React.useState(false)
+  
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
   
   // Guard against null firestore during initial load
   const studentsRef = useMemoFirebase(() => {
@@ -127,6 +131,8 @@ export default function EstudiantesPage() {
       description: "El registro ha sido removido del sistema.",
     })
   }
+
+  if (!mounted) return null
 
   return (
     <div className="space-y-6">
