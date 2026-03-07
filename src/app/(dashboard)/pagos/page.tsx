@@ -14,7 +14,8 @@ import {
   Download, 
   User, 
   Calendar as CalendarIcon,
-  Receipt
+  Receipt,
+  Wallet
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
