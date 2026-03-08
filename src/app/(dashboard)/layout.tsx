@@ -40,18 +40,22 @@ export default function DashboardLayout({
   const { data: school, isLoading: isSchoolLoading } = useDoc(schoolRef)
 
   React.useEffect(() => {
-    if (!isUserLoading && !user) {
+    if (mounted && !isUserLoading && !user) {
       router.push("/login")
     }
-  }, [user, isUserLoading, router])
+  }, [user, isUserLoading, router, mounted])
 
-  if (!mounted || isUserLoading || isProfileLoading) {
+  // Gate the entire dashboard until we have a user and their profile
+  if (!mounted || isUserLoading || (user && isProfileLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }
+
+  // If after loading we still have no user, the useEffect will handle the redirect
+  if (!user) return null
 
   return (
     <SidebarProvider>

@@ -47,11 +47,12 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/hooks/use-toast"
-import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase"
+import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from "@/firebase"
 import { collection, doc, serverTimestamp } from "firebase/firestore"
 
 export default function EstudiantesPage() {
   const { firestore } = useFirestore()
+  const { user } = useUser()
   const [mounted, setMounted] = React.useState(false)
   
   React.useEffect(() => {
@@ -59,9 +60,9 @@ export default function EstudiantesPage() {
   }, [])
   
   const studentsRef = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !user) return null;
     return collection(firestore, "students");
-  }, [firestore])
+  }, [firestore, user])
 
   const { data: students, isLoading } = useCollection(studentsRef)
   
@@ -105,7 +106,7 @@ export default function EstudiantesPage() {
     }
 
     try {
-      await addDocumentNonBlocking(studentsRef, {
+      addDocumentNonBlocking(studentsRef, {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         studentIdNumber: studentIdNumber.trim(),

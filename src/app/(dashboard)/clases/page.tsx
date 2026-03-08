@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -29,13 +30,14 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/hooks/use-toast"
-import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase"
+import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from "@/firebase"
 import { collection, doc, serverTimestamp } from "firebase/firestore"
 
 const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 export default function ClasesPage() {
   const { firestore } = useFirestore()
+  const { user } = useUser()
   const [mounted, setMounted] = React.useState(false)
   
   React.useEffect(() => {
@@ -43,9 +45,9 @@ export default function ClasesPage() {
   }, [])
 
   const schedulesRef = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !user) return null;
     return collection(firestore, "schedules");
-  }, [firestore])
+  }, [firestore, user])
   
   const { data: schedules, isLoading } = useCollection(schedulesRef)
 
@@ -73,7 +75,7 @@ export default function ClasesPage() {
     if (!newClass.subject || !newClass.teacher || !schedulesRef) return
 
     try {
-      await addDocumentNonBlocking(schedulesRef, {
+      addDocumentNonBlocking(schedulesRef, {
         ...newClass,
         color: "bg-indigo-100 border-indigo-400 text-indigo-700",
         createdAt: serverTimestamp(),

@@ -19,16 +19,17 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
-import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase"
+import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, useUser } from "@/firebase"
 import { collection, doc, serverTimestamp } from "firebase/firestore"
 
 export default function TarifasPage() {
   const { firestore } = useFirestore()
+  const { user } = useUser()
   
   const feeTypesRef = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !user) return null;
     return collection(firestore, "fee_types");
-  }, [firestore])
+  }, [firestore, user])
 
   const { data: fees, isLoading } = useCollection(feeTypesRef)
 
@@ -50,7 +51,7 @@ export default function TarifasPage() {
     }
 
     try {
-      await addDocumentNonBlocking(feeTypesRef, {
+      addDocumentNonBlocking(feeTypesRef, {
         ...newFee,
         isActive: true,
         createdAt: serverTimestamp(),
@@ -128,10 +129,10 @@ export default function TarifasPage() {
                   <Label>Monto Base</Label>
                   <Input 
                     type="number" 
-                    value={isNaN(newFee.baseAmount) ? "" : newFee.baseAmount}
+                    value={isNaN(newFee.baseAmount) || newFee.baseAmount === 0 ? "" : newFee.baseAmount}
                     onChange={(e) => {
                       const val = e.target.value === "" ? 0 : parseFloat(e.target.value);
-                      setNewFee({...newFee, baseAmount: val});
+                      setNewFee({...newFee, baseAmount: isNaN(val) ? 0 : val});
                     }}
                   />
                 </div>
