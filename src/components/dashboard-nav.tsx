@@ -14,7 +14,6 @@ import {
   LayoutDashboard,
   GraduationCap,
   CalendarDays,
-  Zap,
   LogOut
 } from "lucide-react"
 
@@ -30,7 +29,6 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/firebase"
 import { signOut } from "firebase/auth"
 
@@ -56,6 +54,7 @@ export function DashboardNav({ schoolName, role }: DashboardNavProps) {
     { name: "Reportes", icon: BarChart3, href: "/reportes", roles: ["Administrador"] },
     { name: "Comunicaciones", icon: MessageSquare, href: "/comunicaciones", roles: ["Administrador", "Academico"] },
     { name: "Personal", icon: ShieldCheck, href: "/staff", roles: ["Administrador"] },
+    { name: "Configuración", icon: Settings, href: "/configuracion", roles: ["Administrador", "Academico", "Alumno"] },
   ]
 
   const filteredItems = allItems.filter(item => !role || item.roles.includes(role))
@@ -68,7 +67,7 @@ export function DashboardNav({ schoolName, role }: DashboardNavProps) {
         </div>
         <div className="flex flex-col overflow-hidden group-data-[collapsible=icon]:hidden">
           <span className="font-headline font-bold text-lg leading-tight truncate">{schoolName}</span>
-          <span className="text-xs text-sidebar-foreground/60">SaaS v2.0</span>
+          <span className="text-xs text-sidebar-foreground/60">Escuela Digital MX</span>
         </div>
       </SidebarHeader>
       <SidebarContent>
