@@ -100,19 +100,25 @@ export default function PagosPage() {
   const [paymentMethod, setPaymentMethod] = React.useState<string>("Efectivo")
   const [paymentDate, setPaymentDate] = React.useState<string>(new Date().toISOString().split('T')[0])
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
+  const [formTotal, setFormTotal] = React.useState<number>(0)
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const [items, setItems] = React.useState<PaymentItem[]>([
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }
   ])
 
-  const totalAmount = items.reduce((sum, item) => sum + item.amount, 0)
+  // Sync total amount from items whenever they change, but Cantidad input is independently editable
+  const sumOfItems = items.reduce((sum, item) => sum + item.amount, 0)
   const editTotalAmount = editItems.reduce((sum, item) => sum + item.amount, 0)
+
+  // We update formTotal when sumOfItems changes to help the user, but formTotal can be manual
+  React.useEffect(() => {
+    setFormTotal(sumOfItems)
+  }, [sumOfItems])
 
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore) return null;
     if (isStudent && profile?.studentIdNumber) {
-       // Search student records to find the specific ID
        return query(collection(firestore, "grades"), where("studentIdNumber", "==", profile.studentIdNumber))
     }
     if (selectedStudent) {
@@ -182,7 +188,7 @@ export default function PagosPage() {
   }
 
   const handleProcessPayment = async () => {
-    if (!selectedStudent || items.length === 0 || !firestore) return
+    if (!selectedStudent || formTotal <= 0 || !firestore) return
     setIsProcessing(true)
     
     try {
@@ -191,7 +197,7 @@ export default function PagosPage() {
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
         items: items,
-        totalAmount: totalAmount,
+        totalAmount: formTotal,
         paymentDate: paymentDate,
         paymentMethod: paymentMethod,
         receivedFrom: receivedFrom,
@@ -201,10 +207,9 @@ export default function PagosPage() {
       
       addDocumentNonBlocking(studentPaymentsRef, paymentData)
 
-      // Best practice: subtract actual paid amount from current balance
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
       updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - totalAmount),
+        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - formTotal),
         updatedAt: serverTimestamp(),
       })
       
@@ -212,6 +217,7 @@ export default function PagosPage() {
       setSelectedStudent(null)
       setSelectedStudentId("")
       setReceivedFrom("")
+      setFormTotal(0)
       setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }])
     } finally {
       setIsProcessing(false)
@@ -304,12 +310,10 @@ export default function PagosPage() {
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm]">
           {pdfData && (
             <div className="relative">
-              {/* Watermark */}
               <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-35deg] text-rose-500/15 text-[150px] font-bold border-[10px] border-rose-500/15 px-12 py-6 rounded-3xl select-none pointer-events-none uppercase z-0">
                 PAGADO
               </div>
 
-              {/* Header */}
               <div className="flex justify-between items-start mb-2">
                 <div className="w-1/3">
                   {pdfData.school.logoUrl && (
@@ -465,15 +469,10 @@ export default function PagosPage() {
                     <Label>Cantidad ($)</Label>
                     <Input 
                       type="number" 
-                      value={totalAmount || ""} 
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        // If we have only one item, sync the math
-                        if (items.length === 1) {
-                          updateItem(items[0].id, { amount: val });
-                        }
-                      }} 
+                      value={formTotal || ""} 
+                      onChange={(e) => setFormTotal(parseFloat(e.target.value) || 0)} 
                       placeholder="0.00" 
+                      className="font-bold text-lg border-primary/30"
                     />
                   </div>
                 </div>
@@ -547,7 +546,7 @@ export default function PagosPage() {
                   <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
                     <div className="text-right">
                       <p className="text-xs uppercase opacity-50 font-bold">Total a Cobrar</p>
-                      <p className="text-2xl font-black text-primary">${totalAmount.toLocaleString()} MXN</p>
+                      <p className="text-2xl font-black text-primary">${formTotal.toLocaleString()} MXN</p>
                     </div>
                   </div>
                 </div>
@@ -575,9 +574,9 @@ export default function PagosPage() {
                 </div>
               </CardContent>
               <CardFooter className="bg-muted/10 border-t pt-6">
-                <Button className="w-full gap-2 h-12 text-lg font-bold" disabled={isProcessing || !selectedStudent || totalAmount <= 0} onClick={handleProcessPayment}>
+                <Button className="w-full gap-2 h-12 text-lg font-bold" disabled={isProcessing || !selectedStudent || formTotal <= 0} onClick={handleProcessPayment}>
                   {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                  Confirmar y Registrar Pago (${totalAmount.toLocaleString()})
+                  Confirmar y Registrar Pago (${formTotal.toLocaleString()})
                 </Button>
               </CardFooter>
            </Card>
