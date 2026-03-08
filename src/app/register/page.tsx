@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2 } from "lucide-react"
+import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2, AlertCircle } from "lucide-react"
 import { useAuth, useFirestore, setDocumentNonBlocking } from "@/firebase"
 import { doc } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { createUserWithEmailAndPassword } from "firebase/auth"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 type Role = "Administrador" | "Academico" | "Alumno"
 
@@ -34,8 +35,16 @@ export default function RegisterPage() {
     activationCode: ""
   })
 
-  // Handle Role Selection
+  // Diagnostic: Log service availability
+  React.useEffect(() => {
+    console.log("RegisterPage: Services Check", { 
+      authAvailable: !!auth, 
+      firestoreAvailable: !!firestore 
+    });
+  }, [auth, firestore]);
+
   const handleSelectRole = (role: Role) => {
+    console.log("RegisterPage: Role selected", role);
     setSelectedRole(role)
     if (role === "Administrador") {
       setStep("form")
@@ -44,13 +53,12 @@ export default function RegisterPage() {
     }
   }
 
-  // Handle Activation Code (Joining existing school)
   const handleCheckCode = async () => {
     if (!firestore || !formData.activationCode) return
     setLoading(true)
+    console.log("RegisterPage: Checking activation code", formData.activationCode);
     
-    // In a real app, you would query the 'schools' collection by activationCode.
-    // For this prototype, we simulate finding a school.
+    // Simulate finding a school for the prototype
     setTimeout(() => {
       setSchoolInfo({ id: "demo-school-id", name: "Escuela Demo" })
       setStep("form")
@@ -60,14 +68,35 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!auth || !firestore || !selectedRole) return
-    
+    console.log("RegisterPage: handleRegister triggered");
+
+    if (!auth) {
+      console.error("RegisterPage: Auth service is missing");
+      toast({ variant: "destructive", title: "Error", description: "El servicio de autenticación no está listo." });
+      return;
+    }
+    if (!firestore) {
+      console.error("RegisterPage: Firestore service is missing");
+      toast({ variant: "destructive", title: "Error", description: "El servicio de base de datos no está listo." });
+      return;
+    }
+    if (!selectedRole) {
+      console.error("RegisterPage: No role selected");
+      return;
+    }
+
     setLoading(true)
+    console.log("RegisterPage: Starting registration process...", { 
+      email: formData.email, 
+      role: selectedRole 
+    });
     
     try {
       // 1. Create the Auth account
+      console.log("RegisterPage: Creating Auth account...");
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password)
       const user = userCredential.user
+      console.log("RegisterPage: Auth account created successfully", user.uid);
 
       // 2. Prepare IDs
       const finalSchoolId = schoolInfo?.id || "school-" + Math.random().toString(36).substring(7)
@@ -75,6 +104,7 @@ export default function RegisterPage() {
 
       // 3. If Director, create the school record
       if (selectedRole === "Administrador") {
+        console.log("RegisterPage: Creating school document...");
         const schoolRef = doc(firestore, "schools", finalSchoolId)
         setDocumentNonBlocking(schoolRef, {
           id: finalSchoolId,
@@ -86,6 +116,7 @@ export default function RegisterPage() {
       }
 
       // 4. Create the user's role profile
+      console.log("RegisterPage: Creating user profile document...");
       const profileRef = doc(firestore, "staff_roles", user.uid)
       setDocumentNonBlocking(profileRef, {
         role: selectedRole,
@@ -97,6 +128,7 @@ export default function RegisterPage() {
         createdAt: new Date().toISOString()
       }, { merge: true })
 
+      console.log("RegisterPage: Registration complete. Redirecting...");
       toast({
         title: "¡Configuración completada!",
         description: selectedRole === "Administrador" 
@@ -105,12 +137,12 @@ export default function RegisterPage() {
       })
       
       // 5. Redirect to dashboard
-      // We give a small delay to ensure local state syncs
       setTimeout(() => {
         router.push("/dashboard")
       }, 500)
 
     } catch (err: any) {
+      console.error("RegisterPage: Registration error caught", err);
       setLoading(false)
       toast({
         variant: "destructive",
@@ -124,6 +156,16 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-gradient-to-br from-primary/5 via-background to-accent/5">
       <div className="w-full max-w-[500px] space-y-6">
         
+        {(!auth || !firestore) && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Servicios No Disponibles</AlertTitle>
+            <AlertDescription>
+              Firebase no se ha inicializado correctamente. Revisa tu consola de desarrollo (F12) y las llaves en el archivo .env.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {step !== "role" && !loading && (
           <Button variant="ghost" className="gap-2" onClick={() => setStep(step === "form" && selectedRole !== "Administrador" ? "activation" : "role")}>
             <ArrowLeft className="h-4 w-4" /> Volver
@@ -226,7 +268,7 @@ export default function RegisterPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Button className="w-full h-11 text-lg font-bold" type="submit" disabled={loading}>
+                <Button className="w-full h-11 text-lg font-bold" type="submit" disabled={loading || !auth || !firestore}>
                   {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Finalizar Registro"}
                 </Button>
               </CardFooter>
