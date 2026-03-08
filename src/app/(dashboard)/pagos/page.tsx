@@ -15,17 +15,18 @@ import {
   Download, 
   User, 
   Receipt,
-  Wallet,
   FileText,
-  Loader2
+  Loader2,
+  MessageCircle
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc } from "@/firebase"
-import { collection, doc, serverTimestamp, getDoc } from "firebase/firestore"
+import { collection, doc, serverTimestamp, getDoc, query, where } from "firebase/firestore"
 import { numberToWords } from "@/lib/number-to-words"
+import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 
@@ -34,8 +35,8 @@ export default function PagosPage() {
   const { user } = useUser()
   const [mounted, setMounted] = React.useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = React.useState<string | null>(null)
+  const [isSendingWA, setIsSendingWA] = React.useState<string | null>(null)
   
-  // Ref for PDF template
   const pdfTemplateRef = React.useRef<HTMLDivElement>(null)
   const [pdfData, setPdfData] = React.useState<any>(null)
 
@@ -43,14 +44,12 @@ export default function PagosPage() {
     setMounted(true)
   }, [])
 
-  // User Profile for schoolId
   const profileRef = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return doc(firestore, "staff_roles", user.uid)
   }, [firestore, user])
   const { data: profile } = useDoc(profileRef)
 
-  // School Data
   const schoolRef = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
     return doc(firestore, "schools", profile.schoolId)
@@ -63,21 +62,26 @@ export default function PagosPage() {
   const { data: students } = useCollection(studentsRef)
   const { data: fees } = useCollection(feeTypesRef)
 
+  const isStudent = profile?.role === "Alumno"
+
   const [selectedStudentId, setSelectedStudentId] = React.useState<string>("")
   const [selectedStudent, setSelectedStudent] = React.useState<any | null>(null)
   const [selectedFeeId, setSelectedFeeId] = React.useState<string>("")
   const [paymentAmount, setPaymentAmount] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
-  // Subscriptions for payments
   const paymentsQuery = useMemoFirebase(() => {
-    if (!firestore) return null;
+    if (!firestore || !profile?.schoolId) return null;
+    if (isStudent && profile?.studentIdNumber) {
+       return query(collection(firestore, "students"), where("studentIdNumber", "==", profile.studentIdNumber))
+    }
     if (selectedStudent) {
       return collection(firestore, "students", selectedStudent.id, "payments");
     }
     return null;
-  }, [firestore, selectedStudent])
+  }, [firestore, selectedStudent, isStudent, profile])
   
+  // Refined hook for history
   const { data: payments } = useCollection(paymentsQuery)
 
   const handleSearchStudent = () => {
@@ -85,24 +89,14 @@ export default function PagosPage() {
     if (student) {
       setSelectedStudent(student)
       setPaymentAmount((student.outstandingBalance || 0).toString())
-      toast({
-        title: "Estudiante encontrado",
-        description: `${student.firstName} ${student.lastName} - Saldo: $${student.outstandingBalance || 0} MXN`,
-      })
     } else {
-      setSelectedStudent(null)
-      toast({
-        variant: "destructive",
-        title: "No encontrado",
-        description: "El ID de estudiante no existe en el sistema.",
-      })
+      toast({ variant: "destructive", title: "No encontrado" })
     }
   }
 
   const handleProcessPayment = async () => {
     if (!selectedStudent || !paymentAmount || !firestore) return
     setIsProcessing(true)
-
     const amount = parseFloat(paymentAmount)
     const fee = fees?.find(f => f.id === selectedFeeId)
     
@@ -114,160 +108,118 @@ export default function PagosPage() {
         feeName: fee?.name || "Pago General",
         amount: amount,
         paymentDate: new Date().toISOString(),
-        paymentMethod: "Tarjeta",
+        paymentMethod: "Efectivo/Transferencia",
         status: 'completado',
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       })
 
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
-      const currentBalance = selectedStudent.outstandingBalance || 0
       updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, currentBalance - amount),
+        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - amount),
         updatedAt: serverTimestamp(),
       })
       
-      toast({
-        title: "Pago Procesado",
-        description: `Registrado por $${paymentAmount} MXN.`,
-      })
-
+      toast({ title: "Pago Procesado" })
       setSelectedStudent(null)
       setSelectedStudentId("")
-      setSelectedFeeId("")
-      setPaymentAmount("")
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "No se pudo procesar el pago." })
     } finally {
       setIsProcessing(false)
+    }
+  }
+
+  const handleWhatsAppNotify = async (payment: any) => {
+    setIsSendingWA(payment.id)
+    try {
+      const studentSnap = await getDoc(doc(firestore!, "students", payment.studentId))
+      const student = studentSnap.data()
+      
+      if (!student?.phone) {
+        toast({ variant: "destructive", title: "Sin teléfono", description: "El alumno no tiene un número registrado." })
+        return
+      }
+
+      const draft = await smartParentCommunicationsDrafting({
+        templateName: "avisoGeneral",
+        contextData: {
+          studentName: payment.studentName,
+          additionalDetails: `Confirmamos el recibo de su pago por ${payment.amount} MXN correspondiente a ${payment.feeName}. Gracias.`
+        }
+      })
+
+      const text = encodeURIComponent(draft.draftMessage)
+      window.open(`https://wa.me/52${student.phone}?text=${text}`, '_blank')
+      toast({ title: "Asistente IA", description: "Borrador de WhatsApp listo." })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error" })
+    } finally {
+      setIsSendingWA(null)
     }
   }
 
   const handleDownloadPDF = async (payment: any) => {
     if (!school || !firestore) return;
     setIsGeneratingPDF(payment.id);
-    
     try {
       const studentSnap = await getDoc(doc(firestore, "students", payment.studentId));
-      const studentData = studentSnap.exists() ? studentSnap.data() : selectedStudent;
-
+      const studentData = studentSnap.exists() ? studentSnap.data() : null;
       const fullData = {
         payment,
-        student: { ...studentData, id: payment.studentId },
+        student: studentData,
         school,
         montoEnLetra: numberToWords(payment.amount),
-        dateFormatted: new Date(payment.paymentDate || Date.now()).toLocaleDateString('es-MX', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })
+        dateFormatted: new Date(payment.paymentDate).toLocaleDateString()
       };
-
       setPdfData(fullData);
-
       setTimeout(async () => {
         if (pdfTemplateRef.current) {
-          const canvas = await html2canvas(pdfTemplateRef.current, {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-          });
-          const imgData = canvas.toDataURL('image/png');
+          const canvas = await html2canvas(pdfTemplateRef.current, { scale: 2 });
           const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-          const imgProps = pdf.getImageProperties(imgData);
-          const pdfWidth = pdf.internal.pageSize.getWidth();
-          const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-          pdf.save(`Recibo_Pago_${payment.id.substring(0, 8)}.pdf`);
+          pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
+          pdf.save(`Recibo_${payment.id.substring(0, 6)}.pdf`);
           setPdfData(null);
           setIsGeneratingPDF(null);
-          toast({ title: "Recibo Descargado", description: "El PDF se generó exitosamente." });
         }
-      }, 600);
-    } catch (error) {
-      console.error("PDF Error:", error);
-      setIsGeneratingPDF(null);
-      toast({ variant: "destructive", title: "Error", description: "No se pudo generar el PDF." });
-    }
+      }, 500);
+    } catch (e) { setIsGeneratingPDF(null); }
   };
 
   if (!mounted) return null
 
   return (
     <div className="space-y-6">
-      {/* PDF TEMPLATE (HIDDEN) */}
-      <div className="fixed -left-[2000px] top-0">
-        <div ref={pdfTemplateRef} className="w-[210mm] bg-white p-[20mm] text-[#333]" style={{ fontFamily: "'Times New Roman', Times, serif" }}>
+      {/* PDF TEMPLATE HIDDEN */}
+      <div className="fixed -left-[3000px]">
+        <div ref={pdfTemplateRef} className="w-[210mm] p-10 bg-white">
           {pdfData && (
-            <div className="border-2 border-gray-200 p-8 relative overflow-hidden">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-25deg] border-8 border-red-500 text-red-500 text-8xl font-black opacity-20 px-12 py-6 rounded-3xl pointer-events-none">
-                PAGADO
-              </div>
-              <div className="flex justify-between items-start mb-10">
-                <div className="w-32 h-32 flex items-center justify-center">
-                  {pdfData.school.logoUrl ? (
-                    <img src={pdfData.school.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain" />
-                  ) : (
-                    <div className="w-full h-full bg-primary/10 rounded-full flex items-center justify-center">
-                      <Receipt className="w-16 h-16 text-primary" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 text-right ml-8">
-                  <h1 className="text-[36px] font-bold leading-tight" style={{ fontFamily: "'Baskerville', 'Times New Roman', serif" }}>
-                    {pdfData.school.name}
-                  </h1>
-                  <div className="text-center mt-4">
-                    <p className="font-bold text-lg">CCT: {pdfData.school.cct}</p>
-                    <p className="text-sm italic">{pdfData.school.address}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="border-t-2 border-b-2 border-black py-4 mb-8 flex justify-between">
-                <div>
-                  <p className="font-bold">RECIBO DE PAGO</p>
-                  <p className="text-sm">Folio: <span className="font-mono">{pdfData.payment.id.toUpperCase()}</span></p>
-                </div>
+            <div className="border-4 border-double p-8 relative">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-30deg] text-rose-500/20 text-9xl font-black border-8 border-rose-500/20 p-10 rounded-full">PAGADO</div>
+              <div className="flex justify-between mb-10">
+                <img src={pdfData.school.logoUrl} className="h-32 object-contain" />
                 <div className="text-right">
-                  <p className="font-bold">FECHA</p>
-                  <p>{pdfData.dateFormatted}</p>
+                  <h1 className="text-4xl font-serif font-bold">{pdfData.school.name}</h1>
+                  <p className="font-bold">CCT: {pdfData.school.cct}</p>
+                  <p className="text-sm italic">{pdfData.school.address}</p>
                 </div>
               </div>
-              <div className="space-y-6 text-lg mb-12">
-                <div className="flex border-b pb-2"><span className="w-48 font-bold">RECIBÍ DE:</span><span className="flex-1 italic">{pdfData.student.guardianName || "N/A"}</span></div>
-                <div className="flex border-b pb-2"><span className="w-48 font-bold">ALUMNO:</span><span className="flex-1">{pdfData.student.firstName} {pdfData.student.lastName}</span></div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="flex border-b pb-2"><span className="w-40 font-bold">MATRÍCULA:</span><span className="flex-1">{pdfData.student.studentIdNumber}</span></div>
-                  <div className="flex border-b pb-2"><span className="w-40 font-bold">GRADO:</span><span className="flex-1">{pdfData.student.gradeLevel}</span></div>
+              <div className="space-y-4 border-y py-6 mb-10">
+                <p><strong>RECIBÍ DE:</strong> {pdfData.student?.guardianName || "N/A"}</p>
+                <p><strong>ALUMNO:</strong> {pdfData.payment.studentName}</p>
+                <div className="grid grid-cols-2">
+                  <p><strong>MATRÍCULA:</strong> {pdfData.student?.studentIdNumber}</p>
+                  <p><strong>FECHA:</strong> {pdfData.dateFormatted}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="flex border-b pb-2"><span className="w-40 font-bold">TELÉFONO:</span><span className="flex-1">{pdfData.student.phone || "N/A"}</span></div>
-                  <div className="flex border-b pb-2"><span className="w-40 font-bold">MÉTODO:</span><span className="flex-1">{pdfData.payment.paymentMethod}</span></div>
-                </div>
-                <div className="flex border-b pb-2"><span className="w-48 font-bold">DOMICILIO:</span><span className="flex-1 text-sm">{pdfData.student.address}</span></div>
-                <div className="flex border-b pb-2"><span className="w-48 font-bold">CONCEPTO:</span><span className="flex-1 font-bold">{pdfData.payment.feeName}</span></div>
+                <p><strong>CONCEPTO:</strong> {pdfData.payment.feeName}</p>
               </div>
-              <div className="bg-gray-100 p-8 rounded-lg mb-12">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="text-2xl font-bold">CANTIDAD:</span>
-                  <span className="text-4xl font-black">${parseFloat(pdfData.payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>
-                </div>
-                <p className="text-sm font-bold text-center border-t border-gray-400 pt-4 uppercase">{pdfData.montoEnLetra}</p>
+              <div className="bg-muted p-6 rounded-lg text-center mb-10">
+                <p className="text-4xl font-black">${pdfData.payment.amount} MXN</p>
+                <p className="text-xs font-bold mt-2 uppercase">{pdfData.montoEnLetra}</p>
               </div>
-              <div className="mt-24 flex flex-col items-center">
-                <div className="w-80 text-center border-t-2 border-black pt-4 relative">
-                  {pdfData.school.adminSignatureUrl && (
-                    <img 
-                      src={pdfData.school.adminSignatureUrl} 
-                      alt="Firma" 
-                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 h-20 w-auto object-contain"
-                    />
-                  )}
-                  <p className="font-bold uppercase">Firma de área administrativa</p>
-                  <p className="text-xs text-gray-500 mt-1">Sello y Validación Digital</p>
+              <div className="mt-20 text-center flex flex-col items-center">
+                <div className="w-64 border-t-2 border-black pt-2 relative">
+                  {pdfData.school.adminSignatureUrl && <img src={pdfData.school.adminSignatureUrl} className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 h-16" />}
+                  <p className="font-bold uppercase">Firma Administrativa</p>
                 </div>
               </div>
-              <div className="text-center mt-12 text-[10px] text-gray-400 uppercase tracking-widest">Documento de validez oficial - Escuela Digital MX</div>
             </div>
           )}
         </div>
@@ -275,100 +227,80 @@ export default function PagosPage() {
 
       <div>
         <h2 className="text-3xl font-headline font-bold text-primary">Pagos y Finanzas</h2>
-        <p className="text-muted-foreground">Procesamiento automatizado de transacciones y consulta de historial.</p>
+        <p className="text-muted-foreground">Gestión financiera escolar inteligente.</p>
       </div>
 
-      <Tabs defaultValue="nuevo-pago" className="w-full">
+      <Tabs defaultValue={isStudent ? "historial" : "nuevo-pago"} className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2 mb-8">
-          <TabsTrigger value="nuevo-pago" className="gap-2"><CreditCard className="h-4 w-4" /> Registrar Pago</TabsTrigger>
-          <TabsTrigger value="historial" className="gap-2"><History className="h-4 w-4" /> Historial de Pagos</TabsTrigger>
+          {!isStudent && <TabsTrigger value="nuevo-pago" className="gap-2"><CreditCard className="h-4 w-4" /> Registrar Pago</TabsTrigger>}
+          <TabsTrigger value="historial" className="gap-2"><History className="h-4 w-4" /> Historial</TabsTrigger>
         </TabsList>
         <TabsContent value="nuevo-pago">
-          <div className="grid gap-6 md:grid-cols-3">
-            <Card className="md:col-span-2 border-none shadow-md overflow-hidden">
+           <Card className="border-none shadow-md max-w-2xl">
               <CardHeader className="bg-primary/5 border-b">
-                <CardTitle className="font-headline text-xl">Nueva Transacción</CardTitle>
-                <CardDescription>Selecciona un estudiante por ID para pre-llenar los datos.</CardDescription>
+                <CardTitle className="font-headline">Nueva Transacción</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6 space-y-6">
+              <CardContent className="pt-6 space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="studentId">Número de ID Estudiante</Label>
+                    <Label>ID Estudiante</Label>
                     <div className="flex gap-2">
-                      <Input id="studentId" placeholder="Ej. 2024001" value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchStudent()} />
+                      <Input value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} />
                       <Button onClick={handleSearchStudent} size="icon" variant="secondary"><Search className="h-4 w-4" /></Button>
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Nombre Estudiante</Label>
-                    <Input value={selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : ""} disabled placeholder="Se llenará automáticamente" />
+                    <Label>Alumno</Label>
+                    <Input value={selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : ""} disabled />
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="fee">Concepto de Pago</Label>
+                    <Label>Concepto</Label>
                     <Select value={selectedFeeId} onValueChange={setSelectedFeeId}>
-                      <SelectTrigger><SelectValue placeholder="Seleccionar concepto..." /></SelectTrigger>
-                      <SelectContent>{fees?.map(fee => (<SelectItem key={fee.id} value={fee.id}>{fee.name} - ${fee.baseAmount}</SelectItem>))}</SelectContent>
+                      <SelectTrigger><SelectValue placeholder="Concepto..." /></SelectTrigger>
+                      <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="amount">Monto a Pagar (MXN)</Label>
-                    <Input id="amount" type="number" placeholder="0.00" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+                    <Label>Monto</Label>
+                    <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-end gap-2 border-t pt-6 bg-muted/20">
-                <Button variant="outline" onClick={() => setSelectedStudent(null)}>Cancelar</Button>
-                <Button disabled={!selectedStudent || isProcessing} className="gap-2" onClick={handleProcessPayment}>
-                  {isProcessing ? "Procesando..." : <><CheckCircle2 className="h-4 w-4" /> Confirmar Pago</>}
+              <CardFooter className="bg-muted/10 border-t pt-4">
+                <Button className="w-full gap-2" disabled={isProcessing || !selectedStudent} onClick={handleProcessPayment}>
+                  <CheckCircle2 className="h-4 w-4" /> Confirmar Pago
                 </Button>
               </CardFooter>
-            </Card>
-            <div className="space-y-6">
-              <Card className="bg-primary text-primary-foreground shadow-lg">
-                <CardHeader><CardTitle className="font-headline">Resumen Estudiantil</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                  {selectedStudent ? (
-                    <>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"><User className="h-6 w-6" /></div>
-                        <div><p className="font-bold">{selectedStudent.firstName} {selectedStudent.lastName}</p><p className="text-xs opacity-70">Grado: {selectedStudent.gradeLevel}</p></div>
-                      </div>
-                      <div className="pt-4 border-t border-white/20"><p className="text-xs opacity-70 mb-1">SALDO TOTAL PENDIENTE</p><p className="text-3xl font-bold">${selectedStudent.outstandingBalance || 0} MXN</p></div>
-                    </>
-                  ) : (
-                    <div className="text-center py-8 opacity-70"><Search className="h-12 w-12 mx-auto mb-4 opacity-50" /><p className="text-sm">Busca un estudiante para ver su estado rápido.</p></div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+           </Card>
         </TabsContent>
         <TabsContent value="historial">
-          <Card className="border-none shadow-sm overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div><CardTitle className="font-headline">Historial de Transacciones</CardTitle><CardDescription>Registro histórico de los pagos recibidos.</CardDescription></div>
-            </CardHeader>
+          <Card className="border-none shadow-md overflow-hidden">
+            <CardHeader><CardTitle className="font-headline">Transacciones</CardTitle></CardHeader>
             <CardContent>
-              <div className="rounded-md border bg-white">
+              <div className="rounded-md border">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Estudiante</TableHead><TableHead>Concepto</TableHead><TableHead>Monto</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Recibo</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>Alumno</TableHead><TableHead>Concepto</TableHead><TableHead>Monto</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
                   <TableBody>
-                    {payments?.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell className="font-mono text-xs text-primary">{payment.id.toUpperCase().substring(0, 8)}</TableCell>
-                        <TableCell className="font-medium">{payment.studentName}</TableCell>
-                        <TableCell>{payment.feeName}</TableCell>
-                        <TableCell className="font-bold">${parseFloat(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</TableCell>
-                        <TableCell><Badge variant={payment.status === "completado" ? "default" : "secondary"} className={payment.status === "completado" ? "bg-emerald-500 hover:bg-emerald-600" : ""}>{payment.status.toUpperCase()}</Badge></TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" disabled={isGeneratingPDF === payment.id} onClick={() => handleDownloadPDF(payment)}>
-                            {isGeneratingPDF === payment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-rose-600" />}
+                    {payments?.length ? payments.map(p => (
+                      <TableRow key={p.id}>
+                        <TableCell>{new Date(p.paymentDate).toLocaleDateString()}</TableCell>
+                        <TableCell className="font-bold">{p.studentName}</TableCell>
+                        <TableCell>{p.feeName}</TableCell>
+                        <TableCell className="font-black text-primary">${p.amount}</TableCell>
+                        <TableCell className="text-right flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" disabled={isGeneratingPDF === p.id} onClick={() => handleDownloadPDF(p)}>
+                            {isGeneratingPDF === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                           </Button>
+                          {!isStudent && (
+                            <Button variant="ghost" size="icon" disabled={isSendingWA === p.id} className="text-emerald-600" onClick={() => handleWhatsAppNotify(p)}>
+                              {isSendingWA === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
-                    )) || (<TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Busca un alumno para ver su historial.</TableCell></TableRow>)}
+                    )) : <TableRow><TableCell colSpan={5} className="text-center py-10">Sin registros.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>

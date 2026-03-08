@@ -8,11 +8,11 @@
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "cct": { "type": "string", "description": "Clave de Centro de Trabajo (Official School ID in Mexico)." },
-        "address": { "type": "string", "description": "Physical address of the school." },
-        "logoUrl": { "type": "string", "description": "URL for the school logo." },
-        "adminSignatureUrl": { "type": "string", "description": "URL or base64 for the administrative signature image." },
-        "activationCode": { "type": "string", "description": "Unique code used by staff and students to join." },
+        "cct": { "type": "string" },
+        "address": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "adminSignatureUrl": { "type": "string" },
+        "activationCode": { "type": "string" },
         "directorId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -28,7 +28,8 @@
         "firstName": { "type": "string" },
         "lastName": { "type": "string" },
         "email": { "type": "string" },
-        "uid": { "type": "string" }
+        "uid": { "type": "string" },
+        "studentIdNumber": { "type": "string", "description": "Linking field for students." }
       },
       "required": ["role", "schoolId", "uid"]
     },
@@ -43,11 +44,40 @@
         "firstName": { "type": "string" },
         "lastName": { "type": "string" },
         "gradeLevel": { "type": "string" },
-        "phone": { "type": "string", "description": "Contact phone number." },
+        "phone": { "type": "string" },
         "outstandingBalance": { "type": "number" },
-        "guardianName": { "type": "string", "description": "The name of the student's tutor or guardian." }
+        "guardianName": { "type": "string" }
       },
       "required": ["id", "schoolId", "firstName", "lastName"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "type": "object",
+      "properties": {
+        "classId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "studentId": { "type": "string" },
+              "status": { "type": "string", "enum": ["presente", "ausente", "retardo"] }
+            }
+          }
+        }
+      }
+    },
+    "Grade": {
+      "title": "Grade",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "subject": { "type": "string" },
+        "score": { "type": "number" },
+        "period": { "type": "string" },
+        "teacherId": { "type": "string" }
+      }
     }
   },
   "auth": {
@@ -60,11 +90,19 @@
     },
     "staff_roles": {
       "schema": { "$ref": "#/backend/entities/UserRole" },
-      "description": "User roles and school associations (indexed by Auth UID)."
+      "description": "User roles and school associations."
     },
     "students": {
       "schema": { "$ref": "#/backend/entities/Student" },
-      "description": "Global student list, filtered by schoolId in rules."
+      "description": "Global student list."
+    },
+    "attendance": {
+      "schema": { "$ref": "#/backend/entities/Attendance" },
+      "description": "Daily attendance logs."
+    },
+    "grades": {
+      "schema": { "$ref": "#/backend/entities/Grade" },
+      "description": "Academic scores."
     }
   }
 }

@@ -7,32 +7,110 @@ import {
   TrendingUp, 
   CreditCard, 
   AlertCircle,
-  School,
   Key,
   CalendarDays,
-  Activity
+  Activity,
+  FileText,
+  Clock
 } from "lucide-react"
-import { useUser, useDoc, useFirestore } from "@/firebase"
-import { doc } from "firebase/firestore"
+import { useUser, useDoc, useFirestore, useCollection, useMemoFirebase } from "@/firebase"
+import { doc, collection, query, where } from "firebase/firestore"
 import React from "react"
+import { Badge } from "@/components/ui/badge"
 
 export default function DashboardPage() {
   const { user } = useUser()
   const { firestore } = useFirestore()
 
-  const userProfileRef = React.useMemo(() => {
+  const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return doc(firestore, "staff_roles", user.uid)
   }, [firestore, user])
 
   const { data: profile } = useDoc(userProfileRef)
 
-  const schoolRef = React.useMemo(() => {
+  const schoolRef = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
     return doc(firestore, "schools", profile.schoolId)
   }, [firestore, profile])
 
   const { data: school } = useDoc(schoolRef)
+
+  // Contextual Data for Students
+  const isStudent = profile?.role === "Alumno"
+  
+  const studentDataQuery = useMemoFirebase(() => {
+    if (!firestore || !isStudent || !profile?.studentIdNumber) return null
+    return query(collection(firestore, "students"), where("studentIdNumber", "==", profile.studentIdNumber))
+  }, [firestore, isStudent, profile])
+
+  const { data: studentRecords } = useCollection(studentDataQuery)
+  const studentInfo = studentRecords?.[0]
+
+  if (isStudent) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h2 className="text-3xl font-headline font-bold text-primary">¡Hola, {profile?.firstName}!</h2>
+          <p className="text-muted-foreground mt-2">Bienvenido a tu portal escolar de <span className="font-bold">{school?.name}</span></p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className={studentInfo?.outstandingBalance ? "border-rose-200 bg-rose-50" : "bg-emerald-50 border-emerald-200"}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Estado de Cuenta</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${studentInfo?.outstandingBalance || 0} MXN</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {studentInfo?.outstandingBalance ? "Tienes pagos pendientes" : "Estás al corriente"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Grado Actual</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{studentInfo?.gradeLevel || "N/A"}</div>
+              <p className="text-xs text-muted-foreground mt-1">Ciclo Escolar 2024</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Matrícula</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">{studentInfo?.studentIdNumber || "---"}</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-headline text-lg flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" /> Clases Próximas
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="h-[200px] flex items-center justify-center border-dashed border-2 rounded-xl bg-muted/20">
+              <p className="text-muted-foreground italic">Revisa la pestaña de Horarios para ver tu agenda completa.</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-headline text-lg flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" /> Últimas Notas
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="h-[200px] flex items-center justify-center border-dashed border-2 rounded-xl bg-muted/20">
+              <p className="text-muted-foreground italic">Tus calificaciones se verán reflejadas aquí al cierre del periodo.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
@@ -62,7 +140,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard title="Estudiantes Activos" value="0" icon={<Users className="h-4 w-4" />} change="0%" trend="neutral" />
+        <MetricCard title="Estudiantes Activos" value="-" icon={<Users className="h-4 w-4" />} change="0%" trend="neutral" />
         <MetricCard title="Ingresos del Mes" value="$0.00" icon={<TrendingUp className="h-4 w-4" />} change="0%" trend="neutral" />
         <MetricCard title="Avisos Pendientes" value="0" icon={<AlertCircle className="h-4 w-4" />} change="-" trend="neutral" />
         <MetricCard title="Eficiencia de Cobro" value="0%" icon={<CreditCard className="h-4 w-4" />} />

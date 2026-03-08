@@ -14,7 +14,8 @@ import {
   LayoutDashboard,
   GraduationCap,
   CalendarDays,
-  LogOut
+  LogOut,
+  FileText
 } from "lucide-react"
 
 import {
@@ -50,10 +51,11 @@ export function DashboardNav({ schoolName, logoUrl, role }: DashboardNavProps) {
     { name: "Inicio", icon: LayoutDashboard, href: "/dashboard", roles: ["Administrador", "Academico", "Alumno"] },
     { name: "Estudiantes", icon: Users, href: "/estudiantes", roles: ["Administrador", "Academico"] },
     { name: "Horarios", icon: CalendarDays, href: "/clases", roles: ["Administrador", "Academico", "Alumno"] },
-    { name: "Config. Tarifas", icon: Settings, href: "/tarifas", roles: ["Administrador"] },
+    { name: "Calificaciones", icon: FileText, href: "/calificaciones", roles: ["Administrador", "Academico", "Alumno"] },
     { name: "Pagos y Finanzas", icon: CreditCard, href: "/pagos", roles: ["Administrador", "Alumno"] },
     { name: "Reportes", icon: BarChart3, href: "/reportes", roles: ["Administrador"] },
     { name: "Comunicaciones", icon: MessageSquare, href: "/comunicaciones", roles: ["Administrador", "Academico"] },
+    { name: "Config. Tarifas", icon: Settings, href: "/tarifas", roles: ["Administrador"] },
     { name: "Personal", icon: ShieldCheck, href: "/staff", roles: ["Administrador"] },
     { name: "Configuración", icon: Settings, href: "/configuracion", roles: ["Administrador", "Academico", "Alumno"] },
   ]
