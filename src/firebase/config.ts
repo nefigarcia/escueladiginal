@@ -6,3 +6,20 @@ export const firebaseConfig = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
+
+/**
+ * Validates that the core Firebase configuration keys are present.
+ * This helps catch missing .env variables early.
+ */
+export function validateConfig() {
+  const missing = [];
+  if (!firebaseConfig.apiKey) missing.push('NEXT_PUBLIC_FIREBASE_API_KEY');
+  if (!firebaseConfig.projectId) missing.push('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  if (!firebaseConfig.appId) missing.push('NEXT_PUBLIC_FIREBASE_APP_ID');
+  
+  if (missing.length > 0) {
+    console.error('Missing Firebase configuration variables:', missing.join(', '));
+    return false;
+  }
+  return true;
+}

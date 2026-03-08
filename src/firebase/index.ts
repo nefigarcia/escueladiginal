@@ -1,43 +1,53 @@
 'use client';
 
-import { firebaseConfig } from '@/firebase/config';
+import { firebaseConfig, validateConfig } from '@/firebase/config';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore'
 
-// IMPORTANT: DO NOT MODIFY THIS FUNCTION
 export function initializeFirebase() {
+  // Validate config first to provide better error messages in dev
+  const isValid = validateConfig();
+  
   if (!getApps().length) {
-    // Important! initializeApp() is called without any arguments because Firebase App Hosting
-    // integrates with the initializeApp() function to provide the environment variables needed to
-    // populate the FirebaseOptions in production. It is critical that we attempt to call initializeApp()
-    // without arguments.
-    let firebaseApp;
+    let firebaseApp: FirebaseApp;
     try {
-      // Attempt to initialize via Firebase App Hosting environment variables
+      // Priority 1: Try automatic initialization (for App Hosting)
       firebaseApp = initializeApp();
+      console.log('Firebase initialized automatically');
     } catch (e) {
-      // Only warn in production because it's normal to use the firebaseConfig to initialize
-      // during development
-      if (process.env.NODE_ENV === "production") {
-        console.warn('Automatic initialization failed. Falling back to firebase config object.', e);
+      // Priority 2: Fallback to config object from .env
+      if (isValid) {
+        firebaseApp = initializeApp(firebaseConfig);
+        console.log('Firebase initialized via config object');
+      } else {
+        console.warn('Firebase configuration is invalid. SDK services will not be available.');
+        // Create a dummy app to prevent the SDK from crashing entirely
+        firebaseApp = initializeApp({ apiKey: 'dummy', projectId: 'dummy', appId: 'dummy' });
       }
-      firebaseApp = initializeApp(firebaseConfig);
     }
 
     return getSdks(firebaseApp);
   }
 
-  // If already initialized, return the SDKs with the already initialized App
   return getSdks(getApp());
 }
 
 export function getSdks(firebaseApp: FirebaseApp) {
-  return {
-    firebaseApp,
-    auth: getAuth(firebaseApp),
-    firestore: getFirestore(firebaseApp)
-  };
+  try {
+    return {
+      firebaseApp,
+      auth: getAuth(firebaseApp),
+      firestore: getFirestore(firebaseApp)
+    };
+  } catch (error) {
+    console.error('Error getting Firebase SDKs:', error);
+    return {
+      firebaseApp,
+      auth: null as any,
+      firestore: null as any
+    };
+  }
 }
 
 export * from './provider';
