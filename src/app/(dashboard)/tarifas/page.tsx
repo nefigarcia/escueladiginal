@@ -40,7 +40,14 @@ export default function TarifasPage() {
   })
 
   const handleAddFee = async () => {
-    if (!newFee.name || !newFee.baseAmount || !feeTypesRef) return
+    if (!newFee.name || isNaN(newFee.baseAmount) || !feeTypesRef) {
+      toast({
+        variant: "destructive",
+        title: "Campos inválidos",
+        description: "Asegúrate de ingresar un nombre y un monto válido.",
+      })
+      return
+    }
 
     try {
       await addDocumentNonBlocking(feeTypesRef, {
@@ -121,8 +128,11 @@ export default function TarifasPage() {
                   <Label>Monto Base</Label>
                   <Input 
                     type="number" 
-                    value={newFee.baseAmount}
-                    onChange={(e) => setNewFee({...newFee, baseAmount: parseFloat(e.target.value)})}
+                    value={isNaN(newFee.baseAmount) ? "" : newFee.baseAmount}
+                    onChange={(e) => {
+                      const val = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                      setNewFee({...newFee, baseAmount: val});
+                    }}
                   />
                 </div>
               </div>
@@ -150,7 +160,7 @@ export default function TarifasPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-primary">
-                ${fee.baseAmount?.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">{fee.currency}</span>
+                ${(fee.baseAmount || 0).toLocaleString()} <span className="text-sm font-normal text-muted-foreground">{fee.currency}</span>
               </div>
             </CardContent>
             <CardFooter className="bg-muted/30 pt-4 flex justify-end gap-2">
