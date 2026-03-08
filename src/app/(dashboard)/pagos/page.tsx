@@ -77,9 +77,6 @@ export default function PagosPage() {
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null;
     if (isStudent && profile?.studentIdNumber) {
-       // Search for student record with this ID number
-       // We'll filter payments by studentName/Id in the view or handle it with a more complex query
-       // For this prototype we show payments for the selected student or current user student
        return query(collection(firestore, "grades"), where("studentIdNumber", "==", profile.studentIdNumber))
     }
     if (selectedStudent) {
@@ -131,6 +128,8 @@ export default function PagosPage() {
       setSelectedStudent(null)
       setSelectedStudentId("")
       setReceivedFrom("")
+      setPaymentAmount("")
+      setSelectedFeeId("")
     } finally {
       setIsProcessing(false)
     }
@@ -196,15 +195,12 @@ export default function PagosPage() {
 
   return (
     <div className="space-y-6">
-      {/* PDF TEMPLATE HIDDEN */}
       <div className="fixed -left-[3000px]">
         <div ref={pdfTemplateRef} className="w-[210mm] p-10 bg-white">
           {pdfData && (
             <div className="border-4 border-double p-8 relative">
-              {/* Pagado Legend */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-30deg] text-rose-500/10 text-9xl font-black border-8 border-rose-500/10 p-10 rounded-full select-none pointer-events-none uppercase">PAGADO</div>
               
-              {/* Header */}
               <div className="flex items-start gap-4 mb-4">
                 {pdfData.school.logoUrl && (
                   <img src={pdfData.school.logoUrl} className="h-24 w-24 object-contain" />
@@ -216,18 +212,15 @@ export default function PagosPage() {
                 </div>
               </div>
               
-              {/* Centered CCT and Address */}
               <div className="text-center mb-8">
                 <p className="font-bold text-lg uppercase">CCT: {pdfData.school.cct}</p>
                 <p className="text-sm italic">{pdfData.school.address}</p>
               </div>
 
-              {/* Red PAGADO text */}
               <div className="text-center mb-6">
                 <span className="text-rose-600 font-black text-2xl border-4 border-rose-600 px-6 py-2 rounded-lg">PAGADO</span>
               </div>
 
-              {/* Content Grid */}
               <div className="grid grid-cols-2 gap-y-4 gap-x-10 border-t border-b py-8 mb-8 text-sm">
                 <p><strong>FECHA DEL PAGO:</strong> {pdfData.dateFormatted}</p>
                 <p><strong>FOLIO:</strong> {pdfData.payment.id.substring(0, 8).toUpperCase()}</p>
@@ -240,13 +233,11 @@ export default function PagosPage() {
                 <p><strong>MÉTODO:</strong> {pdfData.payment.paymentMethod}</p>
               </div>
 
-              {/* Amount Box */}
               <div className="bg-slate-100 p-8 rounded-xl text-center mb-12">
                 <p className="text-5xl font-black text-primary">${pdfData.payment.amount.toLocaleString()} MXN</p>
                 <p className="text-xs font-bold mt-4 uppercase tracking-widest">{pdfData.montoEnLetra}</p>
               </div>
 
-              {/* Signature Footer */}
               <div className="mt-24 text-center flex flex-col items-center">
                 <div className="w-80 border-t-2 border-black pt-2 relative">
                   {pdfData.school.adminSignatureUrl && (
@@ -299,7 +290,11 @@ export default function PagosPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Concepto</Label>
-                    <Select value={selectedFeeId} onValueChange={setSelectedFeeId}>
+                    <Select value={selectedFeeId} onValueChange={(v) => {
+                      setSelectedFeeId(v);
+                      const fee = fees?.find(f => f.id === v);
+                      if (fee) setPaymentAmount(fee.baseAmount.toString());
+                    }}>
                       <SelectTrigger><SelectValue placeholder="Concepto..." /></SelectTrigger>
                       <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
                     </Select>
