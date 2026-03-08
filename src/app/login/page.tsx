@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -16,9 +17,11 @@ export default function LoginPage() {
   const { auth } = useAuth()
   const { user } = useUser()
   const router = useRouter()
+  const [mounted, setMounted] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
 
   React.useEffect(() => {
+    setMounted(true)
     if (user) router.push("/dashboard")
   }, [user, router])
 
@@ -47,13 +50,23 @@ export default function LoginPage() {
     }
   }
 
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  const isConfigInvalid = !auth || auth.app.options.projectId === 'dummy';
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-gradient-to-br from-primary/5 to-accent/5">
       <Card className="w-full max-w-[400px] border-none shadow-2xl">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-primary/10 rounded-2xl">
-              <GraduationCap className="h-8 w-8 text-primary" />
+              <Logos.GraduationCap className="h-8 w-8 text-primary" />
             </div>
           </div>
           <CardTitle className="text-2xl font-headline font-bold">Escuela Digital MX</CardTitle>
@@ -71,7 +84,7 @@ export default function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button className="w-full h-11 text-lg font-bold" disabled={loading}>
+            <Button className="w-full h-11 text-lg font-bold" disabled={loading || isConfigInvalid}>
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Entrar al Sistema"}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
@@ -85,4 +98,8 @@ export default function LoginPage() {
       </Card>
     </div>
   )
+}
+
+const Logos = {
+  GraduationCap
 }

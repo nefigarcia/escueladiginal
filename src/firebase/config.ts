@@ -1,3 +1,4 @@
+
 export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -19,6 +20,7 @@ export function validateConfig() {
   
   if (missing.length > 0) {
     console.error('Missing Firebase configuration variables:', missing.join(', '));
+    console.log('Ensure you have a .env file with NEXT_PUBLIC_FIREBASE_* variables and restart the dev server.');
     return false;
   }
   return true;

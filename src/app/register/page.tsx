@@ -21,6 +21,7 @@ export default function RegisterPage() {
   const { firestore } = useFirestore()
   const router = useRouter()
 
+  const [mounted, setMounted] = React.useState(false)
   const [step, setStep] = React.useState<"role" | "activation" | "form">("role")
   const [selectedRole, setSelectedRole] = React.useState<Role | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -35,13 +36,22 @@ export default function RegisterPage() {
     activationCode: ""
   })
 
-  // Diagnostic: Log service availability
+  // Set mounted state to avoid hydration mismatch
   React.useEffect(() => {
-    console.log("RegisterPage: Services Check", { 
+    setMounted(true)
+    console.log("RegisterPage: Services Check on Mount", { 
       authAvailable: !!auth, 
       firestoreAvailable: !!firestore 
     });
   }, [auth, firestore]);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   const handleSelectRole = (role: Role) => {
     console.log("RegisterPage: Role selected", role);
@@ -152,16 +162,18 @@ export default function RegisterPage() {
     }
   }
 
+  const isConfigInvalid = !auth || !firestore || auth.app.options.projectId === 'dummy';
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-gradient-to-br from-primary/5 via-background to-accent/5">
       <div className="w-full max-w-[500px] space-y-6">
         
-        {(!auth || !firestore) && (
+        {isConfigInvalid && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Servicios No Disponibles</AlertTitle>
             <AlertDescription>
-              Firebase no se ha inicializado correctamente. Revisa tu consola de desarrollo (F12) y las llaves en el archivo .env.
+              Firebase no se ha inicializado correctamente. Revisa tu consola de desarrollo (F12) y las llaves en el archivo .env. Asegúrate de que las variables empiecen con NEXT_PUBLIC_FIREBASE_.
             </AlertDescription>
           </Alert>
         )}
@@ -268,7 +280,7 @@ export default function RegisterPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Button className="w-full h-11 text-lg font-bold" type="submit" disabled={loading || !auth || !firestore}>
+                <Button className="w-full h-11 text-lg font-bold" type="submit" disabled={loading || isConfigInvalid}>
                   {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Finalizar Registro"}
                 </Button>
               </CardFooter>
