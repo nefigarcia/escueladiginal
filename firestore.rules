@@ -3,48 +3,91 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    /**
+     * Escuela Digital MX - Security Rules
+     * 
+     * DBAC Model: Authorization is driven by staff roles.
+     */
+
+    // --- Helper Functions ---
+
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/staff_roles/$(request.auth.uid)).data;
+    function getStaffRole() {
+      return get(/databases/$(database)/documents/staff_roles/$(request.auth.uid)).data.role;
     }
 
     function hasRole(role) {
-      return isSignedIn() && getUserData().role == role;
+      return isSignedIn() && getStaffRole() == role;
     }
 
-    function sameSchool(docData) {
-      return getUserData().schoolId == docData.schoolId;
+    function isAdmin() {
+      return hasRole('Administrador');
     }
+
+    function isFinanceStaff() {
+      return isAdmin() || hasRole('Contador');
+    }
+
+    function isOperationalStaff() {
+      return isAdmin() || hasRole('Secretario') || hasRole('Contador') || hasRole('Academico');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function exists(res) {
+      return res != null;
+    }
+
+    // --- Collection Rules ---
 
     // Schools
     match /schools/{schoolId} {
       allow get: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && hasRole('Administrador') && sameSchool(resource.data);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn(); // Directors create the school
+      allow update, delete: if isAdmin() && resource.data.directorId == request.auth.uid;
     }
 
-    // Roles (DBAC)
+    // Staff Roles
     match /staff_roles/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || (hasRole('Administrador') && sameSchool(get(/databases/$(database)/documents/staff_roles/$(userId)).data)));
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && hasRole('Administrador') && sameSchool(resource.data);
+      // Allow user to see their own role, or allow Admin to see everyone
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      // CRITICAL: Allow a new user to create their own initial profile
+      allow create: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow update: if isSignedIn() && (isAdmin() || isOwner(userId));
+      allow delete: if isAdmin();
     }
 
     // Students
     match /students/{studentId} {
-      allow list: if isSignedIn() && sameSchool(resource.data);
-      allow get: if isSignedIn() && sameSchool(resource.data);
-      allow create: if isSignedIn() && (hasRole('Administrador') || hasRole('Academico'));
-      allow update, delete: if isSignedIn() && hasRole('Administrador') && sameSchool(resource.data);
+      allow get, list: if isOperationalStaff() || isAdmin();
+      allow create, update: if isOperationalStaff() || isAdmin();
+      allow delete: if isAdmin();
+      
+      // Student subcollections
+      match /payments/{paymentId} {
+        allow get, list: if isOperationalStaff() || isAdmin();
+        allow create: if isFinanceStaff() || isAdmin();
+        allow update, delete: if isAdmin();
+      }
     }
 
-    // Fees & Payments
+    // Fee Types
     match /fee_types/{id} {
       allow read: if isSignedIn();
-      allow write: if hasRole('Administrador');
+      allow create, update, delete: if isAdmin() || isFinanceStaff();
+    }
+    
+    // Schedules
+    match /schedules/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isOperationalStaff();
     }
   }
 }
