@@ -18,7 +18,10 @@ import {
   FileText,
   Loader2,
   MessageCircle,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Plus,
+  Trash2,
+  MoreVertical
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -30,6 +33,14 @@ import { numberToWords } from "@/lib/number-to-words"
 import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
+
+interface PaymentItem {
+  id: string;
+  type: 'fee' | 'custom';
+  feeId?: string;
+  name: string;
+  amount: number;
+}
 
 export default function PagosPage() {
   const { firestore } = useFirestore()
@@ -67,17 +78,22 @@ export default function PagosPage() {
 
   const [selectedStudentId, setSelectedStudentId] = React.useState<string>("")
   const [selectedStudent, setSelectedStudent] = React.useState<any | null>(null)
-  const [selectedFeeId, setSelectedFeeId] = React.useState<string>("")
-  const [paymentAmount, setPaymentAmount] = React.useState<string>("")
   const [paymentMethod, setPaymentMethod] = React.useState<string>("Efectivo")
   const [paymentDate, setPaymentDate] = React.useState<string>(new Date().toISOString().split('T')[0])
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
+  // Multi-item state
+  const [items, setItems] = React.useState<PaymentItem[]>([
+    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }
+  ])
+
+  const totalAmount = items.reduce((sum, item) => sum + item.amount, 0)
+
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null;
     if (isStudent && profile?.studentIdNumber) {
-       return query(collection(firestore, "grades"), where("studentIdNumber", "==", profile.studentIdNumber))
+       return query(collection(firestore, "students", profile.uid, "payments"))
     }
     if (selectedStudent) {
       return collection(firestore, "students", selectedStudent.id, "payments");
@@ -91,36 +107,67 @@ export default function PagosPage() {
     const student = students?.find(s => s.studentIdNumber === selectedStudentId)
     if (student) {
       setSelectedStudent(student)
-      setPaymentAmount((student.outstandingBalance || 0).toString())
       setReceivedFrom(student.guardianName || "")
     } else {
       toast({ variant: "destructive", title: "No encontrado" })
     }
   }
 
+  const addItem = (type: 'fee' | 'custom') => {
+    setItems([...items, { 
+      id: Math.random().toString(36).substr(2, 9), 
+      type, 
+      name: '', 
+      amount: 0 
+    }])
+  }
+
+  const removeItem = (id: string) => {
+    if (items.length === 1) return
+    setItems(items.filter(i => i.id !== id))
+  }
+
+  const updateItem = (id: string, updates: Partial<PaymentItem>) => {
+    setItems(items.map(item => {
+      if (item.id === id) {
+        const updated = { ...item, ...updates }
+        // If it's a fee and feeId changed, update name and amount
+        if (updates.feeId && item.type === 'fee') {
+          const fee = fees?.find(f => f.id === updates.feeId)
+          if (fee) {
+            updated.name = fee.name
+            updated.amount = fee.baseAmount || 0
+          }
+        }
+        return updated
+      }
+      return item
+    }))
+  }
+
   const handleProcessPayment = async () => {
-    if (!selectedStudent || !paymentAmount || !firestore) return
+    if (!selectedStudent || items.length === 0 || !firestore) return
     setIsProcessing(true)
-    const amount = parseFloat(paymentAmount)
-    const fee = fees?.find(f => f.id === selectedFeeId)
     
     try {
       const studentPaymentsRef = collection(firestore, "students", selectedStudent.id, "payments")
-      addDocumentNonBlocking(studentPaymentsRef, {
+      const paymentData = {
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
-        feeName: fee?.name || "Pago General",
-        amount: amount,
+        items: items,
+        totalAmount: totalAmount,
         paymentDate: paymentDate,
         paymentMethod: paymentMethod,
         receivedFrom: receivedFrom,
         status: 'completado',
         createdAt: serverTimestamp(),
-      })
+      }
+      
+      addDocumentNonBlocking(studentPaymentsRef, paymentData)
 
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
       updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - amount),
+        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - totalAmount),
         updatedAt: serverTimestamp(),
       })
       
@@ -128,8 +175,7 @@ export default function PagosPage() {
       setSelectedStudent(null)
       setSelectedStudentId("")
       setReceivedFrom("")
-      setPaymentAmount("")
-      setSelectedFeeId("")
+      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }])
     } finally {
       setIsProcessing(false)
     }
@@ -150,7 +196,7 @@ export default function PagosPage() {
         templateName: "avisoGeneral",
         contextData: {
           studentName: payment.studentName,
-          additionalDetails: `Confirmamos el recibo de su pago por ${payment.amount} MXN correspondiente a ${payment.feeName}. Gracias.`
+          additionalDetails: `Confirmamos el recibo de su pago por ${payment.totalAmount} MXN. Gracias.`
         }
       })
 
@@ -174,7 +220,7 @@ export default function PagosPage() {
         payment,
         student: studentData,
         school,
-        montoEnLetra: numberToWords(payment.amount),
+        montoEnLetra: numberToWords(payment.totalAmount || payment.amount),
         dateFormatted: new Date(payment.paymentDate + 'T12:00:00').toLocaleDateString()
       };
       setPdfData(fullData);
@@ -221,24 +267,43 @@ export default function PagosPage() {
                 <span className="text-rose-600 font-black text-2xl border-4 border-rose-600 px-6 py-2 rounded-lg">PAGADO</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-y-4 gap-x-10 border-t border-b py-8 mb-8 text-sm">
+              <div className="grid grid-cols-2 gap-y-4 gap-x-10 border-t border-b py-6 mb-4 text-sm">
                 <p><strong>FECHA DEL PAGO:</strong> {pdfData.dateFormatted}</p>
                 <p><strong>FOLIO:</strong> {pdfData.payment.id.substring(0, 8).toUpperCase()}</p>
                 <p className="col-span-2"><strong>RECIBÍ DE:</strong> {pdfData.payment.receivedFrom || pdfData.student?.guardianName || "N/A"}</p>
                 <p className="col-span-2"><strong>ALUMNO:</strong> {pdfData.payment.studentName}</p>
                 <p><strong>MATRÍCULA:</strong> {pdfData.student?.studentIdNumber}</p>
                 <p><strong>TELÉFONO:</strong> {pdfData.student?.phone || "N/A"}</p>
-                <p className="col-span-2"><strong>DOMICILIO:</strong> {pdfData.student?.address || "N/A"}</p>
-                <p><strong>CONCEPTO DE PAGO:</strong> {pdfData.payment.feeName}</p>
-                <p><strong>MÉTODO:</strong> {pdfData.payment.paymentMethod}</p>
+                <p className="col-span-2"><strong>MÉTODO:</strong> {pdfData.payment.paymentMethod}</p>
               </div>
 
-              <div className="bg-slate-100 p-8 rounded-xl text-center mb-12">
-                <p className="text-5xl font-black text-primary">${pdfData.payment.amount.toLocaleString()} MXN</p>
-                <p className="text-xs font-bold mt-4 uppercase tracking-widest">{pdfData.montoEnLetra}</p>
+              {/* Items Table */}
+              <div className="mb-6 border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b">
+                    <tr>
+                      <th className="p-3 text-left font-bold">Concepto</th>
+                      <th className="p-3 text-right font-bold w-32">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(pdfData.payment.items || [{ name: pdfData.payment.feeName, amount: pdfData.payment.amount }]).map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="p-3">{item.name}</td>
+                        <td className="p-3 text-right font-mono">${(item.amount || 0).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="mt-24 text-center flex flex-col items-center">
+              <div className="bg-slate-100 p-6 rounded-xl text-center mb-8">
+                <p className="text-sm uppercase tracking-widest text-muted-foreground font-bold mb-1">Total Pagado</p>
+                <p className="text-4xl font-black text-primary">${(pdfData.payment.totalAmount || pdfData.payment.amount).toLocaleString()} MXN</p>
+                <p className="text-xs font-bold mt-3 uppercase tracking-widest">{pdfData.montoEnLetra}</p>
+              </div>
+
+              <div className="mt-16 text-center flex flex-col items-center">
                 <div className="w-80 border-t-2 border-black pt-2 relative">
                   {pdfData.school.adminSignatureUrl && (
                     <img src={pdfData.school.adminSignatureUrl} className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 h-20" />
@@ -261,13 +326,14 @@ export default function PagosPage() {
           {!isStudent && <TabsTrigger value="nuevo-pago" className="gap-2"><CreditCard className="h-4 w-4" /> Registrar Pago</TabsTrigger>}
           <TabsTrigger value="historial" className="gap-2"><History className="h-4 w-4" /> Historial</TabsTrigger>
         </TabsList>
+
         <TabsContent value="nuevo-pago">
-           <Card className="border-none shadow-md max-w-2xl">
+           <Card className="border-none shadow-md max-w-3xl">
               <CardHeader className="bg-primary/5 border-b">
                 <CardTitle className="font-headline">Nueva Transacción</CardTitle>
                 <CardDescription>Completa los detalles para generar el recibo oficial.</CardDescription>
               </CardHeader>
-              <CardContent className="pt-6 space-y-4">
+              <CardContent className="pt-6 space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>ID Estudiante</Label>
@@ -287,25 +353,67 @@ export default function PagosPage() {
                   <Input value={receivedFrom} onChange={(e) => setReceivedFrom(e.target.value)} placeholder="Nombre de quien entrega el pago..." />
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Concepto</Label>
-                    <Select value={selectedFeeId} onValueChange={(v) => {
-                      setSelectedFeeId(v);
-                      const fee = fees?.find(f => f.id === v);
-                      if (fee) setPaymentAmount(fee.baseAmount.toString());
-                    }}>
-                      <SelectTrigger><SelectValue placeholder="Concepto..." /></SelectTrigger>
-                      <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
-                    </Select>
+                {/* Items Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <Label className="text-lg font-bold">Desglose de Conceptos</Label>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1">
+                        <Plus className="h-4 w-4" /> Concepto
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => addItem('custom')} className="gap-1">
+                        <Plus className="h-4 w-4" /> Otro
+                      </Button>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Monto</Label>
-                    <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+
+                  <div className="space-y-3">
+                    {items.map((item, index) => (
+                      <div key={item.id} className="grid grid-cols-12 gap-3 items-end bg-muted/20 p-3 rounded-lg border">
+                        <div className="col-span-7 space-y-2">
+                          <Label className="text-xs uppercase opacity-50">Concepto {index + 1}</Label>
+                          {item.type === 'fee' ? (
+                            <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
+                              <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
+                              <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
+                            </Select>
+                          ) : (
+                            <Input placeholder="Nombre del concepto..." value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
+                          )}
+                        </div>
+                        <div className="col-span-4 space-y-2">
+                          <Label className="text-xs uppercase opacity-50">Monto</Label>
+                          <Input 
+                            type="number" 
+                            value={item.amount || ""} 
+                            placeholder="0.00"
+                            onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} 
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-destructive hover:bg-destructive/10" 
+                            onClick={() => removeItem(item.id)}
+                            disabled={items.length === 1}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
+                    <div className="text-right">
+                      <p className="text-xs uppercase opacity-50 font-bold">Total a Cobrar</p>
+                      <p className="text-2xl font-black text-primary">${totalAmount.toLocaleString()} MXN</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 pt-4 border-t">
                   <div className="space-y-2">
                     <Label>Método de Pago</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -327,14 +435,15 @@ export default function PagosPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="bg-muted/10 border-t pt-4">
-                <Button className="w-full gap-2 h-12 text-lg font-bold" disabled={isProcessing || !selectedStudent} onClick={handleProcessPayment}>
+              <CardFooter className="bg-muted/10 border-t pt-6">
+                <Button className="w-full gap-2 h-12 text-lg font-bold" disabled={isProcessing || !selectedStudent || totalAmount <= 0} onClick={handleProcessPayment}>
                   {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                  Confirmar y Registrar Pago
+                  Confirmar y Registrar Pago (${totalAmount.toLocaleString()})
                 </Button>
               </CardFooter>
            </Card>
         </TabsContent>
+
         <TabsContent value="historial">
           <Card className="border-none shadow-md overflow-hidden">
             <CardHeader><CardTitle className="font-headline">Transacciones</CardTitle></CardHeader>
@@ -345,9 +454,9 @@ export default function PagosPage() {
                     <TableRow>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Alumno</TableHead>
-                      <TableHead>Concepto</TableHead>
+                      <TableHead>Detalles</TableHead>
                       <TableHead>Método</TableHead>
-                      <TableHead>Monto</TableHead>
+                      <TableHead>Monto Total</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -356,9 +465,15 @@ export default function PagosPage() {
                       <TableRow key={p.id}>
                         <TableCell>{new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}</TableCell>
                         <TableCell className="font-bold">{p.studentName}</TableCell>
-                        <TableCell>{p.feeName}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            {(p.items || [{ name: p.feeName }]).map((it: any, idx: number) => (
+                              <span key={idx} className="text-[10px] text-muted-foreground">• {it.name}</span>
+                            ))}
+                          </div>
+                        </TableCell>
                         <TableCell><Badge variant="outline" className="text-[10px]">{p.paymentMethod}</Badge></TableCell>
-                        <TableCell className="font-black text-primary">${p.amount.toLocaleString()}</TableCell>
+                        <TableCell className="font-black text-primary">${(p.totalAmount || p.amount || 0).toLocaleString()}</TableCell>
                         <TableCell className="text-right flex justify-end gap-2">
                           <Button variant="ghost" size="icon" disabled={isGeneratingPDF === p.id} onClick={() => handleDownloadPDF(p)} title="Descargar Recibo">
                             {isGeneratingPDF === p.id ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <FileText className="h-4 w-4 text-destructive" />}
