@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -13,24 +14,48 @@ import {
   History, 
   Download, 
   User, 
-  Calendar as CalendarIcon,
   Receipt,
-  Wallet
+  Wallet,
+  FileText,
+  Loader2
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
-import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase"
-import { collection, doc, serverTimestamp, query, where, limit } from "firebase/firestore"
+import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc } from "@/firebase"
+import { collection, doc, serverTimestamp, getDoc } from "firebase/firestore"
+import { numberToWords } from "@/lib/number-to-words"
+import jsPDF from "jspdf"
+import html2canvas from "html2canvas"
 
 export default function PagosPage() {
   const { firestore } = useFirestore()
+  const { user } = useUser()
   const [mounted, setMounted] = React.useState(false)
+  const [isGeneratingPDF, setIsGeneratingPDF] = React.useState<string | null>(null)
   
+  // Ref for PDF template
+  const pdfTemplateRef = React.useRef<HTMLDivElement>(null)
+  const [pdfData, setPdfData] = React.useState<any>(null)
+
   React.useEffect(() => {
     setMounted(true)
   }, [])
+
+  // User Profile for schoolId
+  const profileRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null
+    return doc(firestore, "staff_roles", user.uid)
+  }, [firestore, user])
+  const { data: profile } = useDoc(profileRef)
+
+  // School Data
+  const schoolRef = useMemoFirebase(() => {
+    if (!firestore || !profile?.schoolId) return null
+    return doc(firestore, "schools", profile.schoolId)
+  }, [firestore, profile])
+  const { data: school } = useDoc(schoolRef)
   
   const studentsRef = useMemoFirebase(() => firestore ? collection(firestore, "students") : null, [firestore])
   const feeTypesRef = useMemoFirebase(() => firestore ? collection(firestore, "fee_types") : null, [firestore])
@@ -44,10 +69,15 @@ export default function PagosPage() {
   const [paymentAmount, setPaymentAmount] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
-  // Subscriptions for payments (per student)
+  // Subscriptions for payments (per student if selected, otherwise global or empty for now)
   const paymentsQuery = useMemoFirebase(() => {
-    if (!firestore || !selectedStudent) return null;
-    return collection(firestore, "students", selectedStudent.id, "payments");
+    if (!firestore) return null;
+    // For simplicity, we'll fetch from a global 'payments' collection or subcollections
+    // In this MVP, we use the student's subcollection if searching for history
+    if (selectedStudent) {
+      return collection(firestore, "students", selectedStudent.id, "payments");
+    }
+    return null;
   }, [firestore, selectedStudent])
   
   const { data: payments } = useCollection(paymentsQuery)
@@ -79,21 +109,19 @@ export default function PagosPage() {
     const fee = fees?.find(f => f.id === selectedFeeId)
     
     try {
-      // 1. Record payment in subcollection
       const studentPaymentsRef = collection(firestore, "students", selectedStudent.id, "payments")
-      await addDocumentNonBlocking(studentPaymentsRef, {
+      addDocumentNonBlocking(studentPaymentsRef, {
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
         feeName: fee?.name || "Pago General",
         amount: amount,
-        paymentDate: serverTimestamp(),
-        paymentMethod: "Tarjeta", // Mocking method for now
+        paymentDate: new Date().toISOString(), // Use string ISO for easy PDF formatting
+        paymentMethod: "Tarjeta",
         status: 'completado',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
 
-      // 2. Update student balance
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
       const currentBalance = selectedStudent.outstandingBalance || 0
       updateDocumentNonBlocking(studentDocRef, {
@@ -106,7 +134,6 @@ export default function PagosPage() {
         description: `Se ha registrado el pago por $${paymentAmount} MXN.`,
       })
 
-      // Reset form
       setSelectedStudent(null)
       setSelectedStudentId("")
       setSelectedFeeId("")
@@ -122,10 +149,186 @@ export default function PagosPage() {
     }
   }
 
+  const handleDownloadPDF = async (payment: any) => {
+    if (!school || !firestore) return;
+    
+    setIsGeneratingPDF(payment.id);
+    
+    try {
+      // Get student detailed data if not available
+      const studentSnap = await getDoc(doc(firestore, "students", payment.studentId));
+      const studentData = studentSnap.exists() ? studentSnap.data() : selectedStudent;
+
+      const fullData = {
+        payment,
+        student: { ...studentData, id: payment.studentId },
+        school,
+        montoEnLetra: numberToWords(payment.amount),
+        dateFormatted: new Date(payment.paymentDate || Date.now()).toLocaleDateString('es-MX', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
+      };
+
+      setPdfData(fullData);
+
+      // Small delay to ensure the template renders in the hidden div
+      setTimeout(async () => {
+        if (pdfTemplateRef.current) {
+          const canvas = await html2canvas(pdfTemplateRef.current, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+          });
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+          });
+          
+          const imgProps = pdf.getImageProperties(imgData);
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+          
+          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+          pdf.save(`Recibo_Pago_${payment.id.substring(0, 8)}.pdf`);
+          
+          setPdfData(null);
+          setIsGeneratingPDF(null);
+          toast({
+            title: "PDF Generado",
+            description: "El recibo se ha descargado correctamente.",
+          });
+        }
+      }, 500);
+
+    } catch (error) {
+      console.error("PDF Error:", error);
+      setIsGeneratingPDF(null);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No se pudo generar el PDF del recibo.",
+      });
+    }
+  };
+
   if (!mounted) return null
 
   return (
     <div className="space-y-6">
+      {/* PDF TEMPLATE (HIDDEN) */}
+      <div className="fixed -left-[2000px] top-0">
+        <div 
+          ref={pdfTemplateRef} 
+          className="w-[210mm] bg-white p-[20mm] text-[#333]"
+          style={{ fontFamily: "'Times New Roman', Times, serif" }}
+        >
+          {pdfData && (
+            <div className="border-2 border-gray-200 p-8 relative overflow-hidden">
+              {/* PAGADO STAMP */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-25deg] border-8 border-red-500 text-red-500 text-8xl font-black opacity-20 px-12 py-6 rounded-3xl pointer-events-none">
+                PAGADO
+              </div>
+
+              <div className="flex justify-between items-start mb-10">
+                <div className="w-32 h-32 flex items-center justify-center">
+                  {pdfData.school.logoUrl ? (
+                    <img src={pdfData.school.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain" />
+                  ) : (
+                    <div className="w-full h-full bg-primary/10 rounded-full flex items-center justify-center">
+                      <Receipt className="w-16 h-16 text-primary" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 text-right ml-8">
+                  <h1 className="text-[36px] font-bold leading-tight" style={{ fontFamily: "'Baskerville', 'Times New Roman', serif" }}>
+                    {pdfData.school.name}
+                  </h1>
+                  <div className="text-center mt-4">
+                    <p className="font-bold text-lg">CCT: {pdfData.school.cct}</p>
+                    <p className="text-sm italic">{pdfData.school.address}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t-2 border-b-2 border-black py-4 mb-8 flex justify-between">
+                <div>
+                  <p className="font-bold">RECIBO DE PAGO</p>
+                  <p className="text-sm">Folio: <span className="font-mono">{pdfData.payment.id.toUpperCase()}</span></p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold">FECHA</p>
+                  <p>{pdfData.dateFormatted}</p>
+                </div>
+              </div>
+
+              <div className="space-y-6 text-lg mb-12">
+                <div className="flex border-b pb-2">
+                  <span className="w-48 font-bold">RECIBÍ DE:</span>
+                  <span className="flex-1 italic">{pdfData.student.guardianName || "N/A"}</span>
+                </div>
+                <div className="flex border-b pb-2">
+                  <span className="w-48 font-bold">ALUMNO:</span>
+                  <span className="flex-1">{pdfData.student.firstName} {pdfData.student.lastName}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="flex border-b pb-2">
+                    <span className="w-40 font-bold">MATRÍCULA:</span>
+                    <span className="flex-1">{pdfData.student.studentIdNumber}</span>
+                  </div>
+                  <div className="flex border-b pb-2">
+                    <span className="w-40 font-bold">GRADO:</span>
+                    <span className="flex-1">{pdfData.student.gradeLevel}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="flex border-b pb-2">
+                    <span className="w-40 font-bold">TELÉFONO:</span>
+                    <span className="flex-1">{pdfData.student.phone || "N/A"}</span>
+                  </div>
+                  <div className="flex border-b pb-2">
+                    <span className="w-40 font-bold">MÉTODO:</span>
+                    <span className="flex-1">{pdfData.payment.paymentMethod}</span>
+                  </div>
+                </div>
+                <div className="flex border-b pb-2">
+                  <span className="w-48 font-bold">DOMICILIO:</span>
+                  <span className="flex-1 text-sm">{pdfData.student.address}</span>
+                </div>
+                <div className="flex border-b pb-2">
+                  <span className="w-48 font-bold">CONCEPTO:</span>
+                  <span className="flex-1 font-bold">{pdfData.payment.feeName}</span>
+                </div>
+              </div>
+
+              <div className="bg-gray-100 p-8 rounded-lg mb-12">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-2xl font-bold">CANTIDAD:</span>
+                  <span className="text-4xl font-black">${parseFloat(pdfData.payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>
+                </div>
+                <p className="text-sm font-bold text-center border-t border-gray-400 pt-4 uppercase">
+                  {pdfData.montoEnLetra}
+                </p>
+              </div>
+
+              <div className="mt-24 flex justify-center">
+                <div className="w-80 text-center border-t-2 border-black pt-4">
+                  <p className="font-bold uppercase">Firma de área administrativa</p>
+                  <p className="text-xs text-gray-500 mt-2">Sello y Firma Digital</p>
+                </div>
+              </div>
+              
+              <div className="text-center mt-12 text-[10px] text-gray-400 uppercase tracking-widest">
+                Documento de validez oficial - Escuela Digital MX
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div>
         <h2 className="text-3xl font-headline font-bold text-primary">Pagos y Finanzas</h2>
         <p className="text-muted-foreground">Procesamiento automatizado de transacciones y consulta de historial.</p>
@@ -285,12 +488,12 @@ export default function PagosPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>ID</TableHead>
+                      <TableHead>Folio</TableHead>
                       <TableHead>Estudiante</TableHead>
                       <TableHead>Concepto</TableHead>
                       <TableHead>Monto</TableHead>
                       <TableHead>Estado</TableHead>
-                      <TableHead></TableHead>
+                      <TableHead className="text-right">Recibo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -299,7 +502,7 @@ export default function PagosPage() {
                         <TableCell className="font-mono text-xs text-primary">{payment.id.toUpperCase().substring(0, 8)}</TableCell>
                         <TableCell className="font-medium">{payment.studentName}</TableCell>
                         <TableCell>{payment.feeName}</TableCell>
-                        <TableCell className="font-bold">${payment.amount} MXN</TableCell>
+                        <TableCell className="font-bold">${parseFloat(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</TableCell>
                         <TableCell>
                           <Badge 
                             variant={payment.status === "completado" ? "default" : "secondary"}
@@ -308,16 +511,26 @@ export default function PagosPage() {
                             {payment.status.toUpperCase()}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="icon">
-                            <Receipt className="h-4 w-4" />
+                        <TableCell className="text-right">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            title="Descargar PDF"
+                            disabled={isGeneratingPDF === payment.id}
+                            onClick={() => handleDownloadPDF(payment)}
+                          >
+                            {isGeneratingPDF === payment.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <FileText className="h-4 w-4 text-rose-600" />
+                            )}
                           </Button>
                         </TableCell>
                       </TableRow>
                     )) || (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
-                          {selectedStudent ? "No se encontraron pagos registrados para este alumno." : "Selecciona un alumno para ver su historial."}
+                          {selectedStudent ? "No se encontraron pagos registrados para este alumno." : "Busca un alumno en la pestaña 'Registrar Pago' para ver su historial aquí."}
                         </TableCell>
                       </TableRow>
                     )}
