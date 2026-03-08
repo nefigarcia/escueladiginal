@@ -77,6 +77,7 @@ export default function EstudiantesPage() {
     address: "",
     guardianName: "",
     phone: "",
+    email: "",
   })
 
   const filteredStudents = (students || []).filter(s => 
@@ -114,6 +115,7 @@ export default function EstudiantesPage() {
         address: newStudent.address.trim(),
         guardianName: newStudent.guardianName.trim(),
         phone: newStudent.phone.trim(),
+        email: newStudent.email.trim(),
         guardianIds: [],
         enrollmentDate: new Date().toISOString().split('T')[0],
         createdAt: serverTimestamp(),
@@ -130,6 +132,7 @@ export default function EstudiantesPage() {
         address: "",
         guardianName: "",
         phone: "",
+        email: "",
       })
       
       toast({
@@ -233,6 +236,16 @@ export default function EstudiantesPage() {
                     onChange={(e) => setNewStudent({...newStudent, phone: e.target.value})}
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Correo Electrónico</Label>
+                <Input 
+                  id="email" 
+                  type="email"
+                  placeholder="estudiante@ejemplo.com"
+                  value={newStudent.email}
+                  onChange={(e) => setNewStudent({...newStudent, email: e.target.value})}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="address">Dirección</Label>

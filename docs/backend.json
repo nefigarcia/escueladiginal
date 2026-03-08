@@ -45,6 +45,7 @@
         "lastName": { "type": "string" },
         "gradeLevel": { "type": "string" },
         "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
         "outstandingBalance": { "type": "number" },
         "guardianName": { "type": "string" }
       },
