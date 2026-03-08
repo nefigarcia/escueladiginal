@@ -110,9 +110,10 @@ export default function PagosPage() {
   const editTotalAmount = editItems.reduce((sum, item) => sum + item.amount, 0)
 
   const paymentsQuery = useMemoFirebase(() => {
-    if (!firestore || !profile?.schoolId) return null;
+    if (!firestore) return null;
     if (isStudent && profile?.studentIdNumber) {
-       return query(collection(firestore, "students", profile.uid, "payments"))
+       // Search student records to find the specific ID
+       return query(collection(firestore, "grades"), where("studentIdNumber", "==", profile.studentIdNumber))
     }
     if (selectedStudent) {
       return collection(firestore, "students", selectedStudent.id, "payments");
@@ -200,6 +201,7 @@ export default function PagosPage() {
       
       addDocumentNonBlocking(studentPaymentsRef, paymentData)
 
+      // Best practice: subtract actual paid amount from current balance
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
       updateDocumentNonBlocking(studentDocRef, {
         outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - totalAmount),
@@ -326,10 +328,8 @@ export default function PagosPage() {
                 <p className="text-sm italic">{pdfData.school.address}</p>
               </div>
 
-              {/* Thick Separator Line */}
               <div className="h-1 bg-black w-full mb-6" />
 
-              {/* Receipt Subheader */}
               <div className="flex justify-between items-end mb-6">
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-widest">Recibo de Pago</h2>
@@ -341,7 +341,6 @@ export default function PagosPage() {
                 </div>
               </div>
 
-              {/* Main Fields with Separators */}
               <div className="space-y-4 mb-8">
                 <div className="border-b border-black/10 py-3 flex items-baseline">
                   <span className="text-sm font-bold uppercase w-32 shrink-0">Recibí de:</span>
@@ -376,7 +375,6 @@ export default function PagosPage() {
                   <span className="text-sm italic ml-4">{pdfData.student?.address || "N/A"}</span>
                 </div>
                 
-                {/* Concepts Breakdown Summary */}
                 <div className="border-b border-black/10 py-4 flex flex-col">
                   <span className="text-sm font-bold uppercase mb-2">Desglose de Conceptos:</span>
                   <div className="space-y-1 ml-4 pr-4">
@@ -392,20 +390,22 @@ export default function PagosPage() {
                 </div>
               </div>
 
-              {/* Amount Box */}
               <div className="bg-slate-50 p-8 rounded-xl border border-black/5 mb-12">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-xl font-bold uppercase">Total Pagado:</span>
                   <span className="text-3xl font-black">${(pdfData.payment.totalAmount || 0).toLocaleString()} MXN</span>
                 </div>
-                <div className="text-center pt-4 border-t border-black/10">
+                <div className="text-center pt-4 border-t border-black/10 mb-4">
                   <p className="text-sm font-bold uppercase tracking-widest text-slate-700">
                     {pdfData.montoEnLetra}
                   </p>
                 </div>
+                <div className="flex justify-between items-center pt-2 text-rose-700 font-bold border-t border-rose-100">
+                  <span className="text-xs uppercase">Saldo Pendiente Después de este Pago:</span>
+                  <span className="text-lg">${(pdfData.student?.outstandingBalance || 0).toLocaleString()} MXN</span>
+                </div>
               </div>
 
-              {/* Footer Signature */}
               <div className="mt-32 flex flex-col items-center">
                 <div className="w-[300px] border-t-2 border-black relative">
                   {pdfData.school.adminSignatureUrl && (
@@ -468,6 +468,7 @@ export default function PagosPage() {
                       value={totalAmount || ""} 
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
+                        // If we have only one item, sync the math
                         if (items.length === 1) {
                           updateItem(items[0].id, { amount: val });
                         }
