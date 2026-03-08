@@ -12,7 +12,6 @@ import {
   Search, 
   CheckCircle2, 
   History, 
-  Download, 
   User, 
   Receipt,
   FileText,
@@ -40,7 +39,13 @@ interface PaymentItem {
   feeId?: string;
   name: string;
   amount: number;
+  month?: string;
 }
+
+const MONTHS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
 
 export default function PagosPage() {
   const { firestore } = useFirestore()
@@ -83,7 +88,6 @@ export default function PagosPage() {
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
-  // Multi-item state
   const [items, setItems] = React.useState<PaymentItem[]>([
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }
   ])
@@ -93,6 +97,7 @@ export default function PagosPage() {
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null;
     if (isStudent && profile?.studentIdNumber) {
+       // Note: Corrected subcollection query logic
        return query(collection(firestore, "students", profile.uid, "payments"))
     }
     if (selectedStudent) {
@@ -131,12 +136,15 @@ export default function PagosPage() {
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, ...updates }
-        // If it's a fee and feeId changed, update name and amount
         if (updates.feeId && item.type === 'fee') {
           const fee = fees?.find(f => f.id === updates.feeId)
           if (fee) {
             updated.name = fee.name
             updated.amount = fee.baseAmount || 0
+            // Clear month if not Colegiatura
+            if (!fee.name.toLowerCase().includes('colegiatura')) {
+              updated.month = undefined
+            }
           }
         }
         return updated
@@ -242,7 +250,7 @@ export default function PagosPage() {
   return (
     <div className="space-y-6">
       <div className="fixed -left-[3000px]">
-        <div ref={pdfTemplateRef} className="w-[210mm] p-10 bg-white">
+        <div ref={pdfTemplateRef} className="w-[210mm] p-10 bg-white text-black">
           {pdfData && (
             <div className="border-4 border-double p-8 relative">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-30deg] text-rose-500/10 text-9xl font-black border-8 border-rose-500/10 p-10 rounded-full select-none pointer-events-none uppercase">PAGADO</div>
@@ -277,7 +285,6 @@ export default function PagosPage() {
                 <p className="col-span-2"><strong>MÉTODO:</strong> {pdfData.payment.paymentMethod}</p>
               </div>
 
-              {/* Items Table */}
               <div className="mb-6 border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b">
@@ -289,7 +296,9 @@ export default function PagosPage() {
                   <tbody className="divide-y">
                     {(pdfData.payment.items || [{ name: pdfData.payment.feeName, amount: pdfData.payment.amount }]).map((item: any, idx: number) => (
                       <tr key={idx}>
-                        <td className="p-3">{item.name}</td>
+                        <td className="p-3">
+                          {item.name} {item.month ? `- ${item.month}` : ''}
+                        </td>
                         <td className="p-3 text-right font-mono">${(item.amount || 0).toLocaleString()}</td>
                       </tr>
                     ))}
@@ -316,9 +325,11 @@ export default function PagosPage() {
         </div>
       </div>
 
-      <div>
-        <h2 className="text-3xl font-headline font-bold text-primary">Pagos y Finanzas</h2>
-        <p className="text-muted-foreground">Gestión financiera escolar inteligente.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-headline font-bold text-primary">Pagos y Finanzas</h2>
+          <p className="text-muted-foreground">Gestión financiera escolar inteligente.</p>
+        </div>
       </div>
 
       <Tabs defaultValue={isStudent ? "historial" : "nuevo-pago"} className="w-full">
@@ -353,7 +364,6 @@ export default function PagosPage() {
                   <Input value={receivedFrom} onChange={(e) => setReceivedFrom(e.target.value)} placeholder="Nombre de quien entrega el pago..." />
                 </div>
 
-                {/* Items Section */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b pb-2">
                     <Label className="text-lg font-bold">Desglose de Conceptos</Label>
@@ -369,14 +379,29 @@ export default function PagosPage() {
 
                   <div className="space-y-3">
                     {items.map((item, index) => (
-                      <div key={item.id} className="grid grid-cols-12 gap-3 items-end bg-muted/20 p-3 rounded-lg border">
+                      <div key={item.id} className="grid grid-cols-12 gap-3 items-start bg-muted/20 p-3 rounded-lg border">
                         <div className="col-span-7 space-y-2">
                           <Label className="text-xs uppercase opacity-50">Concepto {index + 1}</Label>
                           {item.type === 'fee' ? (
-                            <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
-                              <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
-                              <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
-                            </Select>
+                            <>
+                              <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
+                                <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
+                                <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
+                              </Select>
+                              {item.name.toLowerCase().includes('colegiatura') && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <Label className="text-[10px] uppercase font-bold shrink-0">Mes:</Label>
+                                  <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v })}>
+                                    <SelectTrigger className="h-8 text-xs">
+                                      <SelectValue placeholder="Seleccionar mes..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                            </>
                           ) : (
                             <Input placeholder="Nombre del concepto..." value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
                           )}
@@ -390,7 +415,7 @@ export default function PagosPage() {
                             onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} 
                           />
                         </div>
-                        <div className="col-span-1">
+                        <div className="col-span-1 pt-6">
                           <Button 
                             variant="ghost" 
                             size="icon" 
@@ -468,7 +493,7 @@ export default function PagosPage() {
                         <TableCell>
                           <div className="flex flex-col gap-0.5">
                             {(p.items || [{ name: p.feeName }]).map((it: any, idx: number) => (
-                              <span key={idx} className="text-[10px] text-muted-foreground">• {it.name}</span>
+                              <span key={idx} className="text-[10px] text-muted-foreground">• {it.name} {it.month ? `(${it.month})` : ''}</span>
                             ))}
                           </div>
                         </TableCell>
