@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2 } from "lucide-react"
-import { useAuth, useFirestore, useUser, setDocumentNonBlocking } from "@/firebase"
+import { useAuth, useFirestore, setDocumentNonBlocking } from "@/firebase"
 import { doc } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { createUserWithEmailAndPassword } from "firebase/auth"
@@ -17,7 +18,6 @@ type Role = "Administrador" | "Academico" | "Alumno"
 export default function RegisterPage() {
   const { auth } = useAuth()
   const { firestore } = useFirestore()
-  const { user } = useUser()
   const router = useRouter()
 
   const [step, setStep] = React.useState<"role" | "activation" | "form">("role")
@@ -49,8 +49,8 @@ export default function RegisterPage() {
     if (!firestore || !formData.activationCode) return
     setLoading(true)
     
-    // In a production app, we would query the 'schools' collection for this code.
-    // For the prototype, we simulate a successful find.
+    // In a real app, you would query the 'schools' collection by activationCode.
+    // For this prototype, we simulate finding a school.
     setTimeout(() => {
       setSchoolInfo({ id: "demo-school-id", name: "Escuela Demo" })
       setStep("form")
@@ -66,8 +66,50 @@ export default function RegisterPage() {
     
     try {
       // 1. Create the Auth account
-      await createUserWithEmailAndPassword(auth, formData.email, formData.password)
-      // The useEffect will handle data creation once 'user' is populated by Firebase Auth listener
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password)
+      const user = userCredential.user
+
+      // 2. Prepare IDs
+      const finalSchoolId = schoolInfo?.id || "school-" + Math.random().toString(36).substring(7)
+      const schoolActivationCode = Math.random().toString(36).substring(7).toUpperCase()
+
+      // 3. If Director, create the school record
+      if (selectedRole === "Administrador") {
+        const schoolRef = doc(firestore, "schools", finalSchoolId)
+        setDocumentNonBlocking(schoolRef, {
+          id: finalSchoolId,
+          name: formData.schoolName || "Nueva Escuela",
+          activationCode: schoolActivationCode,
+          directorId: user.uid,
+          createdAt: new Date().toISOString()
+        }, { merge: true })
+      }
+
+      // 4. Create the user's role profile
+      const profileRef = doc(firestore, "staff_roles", user.uid)
+      setDocumentNonBlocking(profileRef, {
+        role: selectedRole,
+        schoolId: finalSchoolId,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: user.email,
+        uid: user.uid,
+        createdAt: new Date().toISOString()
+      }, { merge: true })
+
+      toast({
+        title: "¡Configuración completada!",
+        description: selectedRole === "Administrador" 
+          ? `Bienvenido. Tu código de activación es: ${schoolActivationCode}`
+          : "Te has unido exitosamente a la escuela.",
+      })
+      
+      // 5. Redirect to dashboard
+      // We give a small delay to ensure local state syncs
+      setTimeout(() => {
+        router.push("/dashboard")
+      }, 500)
+
     } catch (err: any) {
       setLoading(false)
       toast({
@@ -77,63 +119,6 @@ export default function RegisterPage() {
       })
     }
   }
-
-  // Handle database creation after Auth is successful
-  React.useEffect(() => {
-    if (user && loading && selectedRole && firestore) {
-      const finishSetup = async () => {
-        try {
-          let finalSchoolId = schoolInfo?.id || "school-" + Math.random().toString(36).substring(7)
-          const activationCode = Math.random().toString(36).substring(7).toUpperCase()
-
-          // If Director, create the school record
-          if (selectedRole === "Administrador") {
-            const schoolRef = doc(firestore, "schools", finalSchoolId)
-            setDocumentNonBlocking(schoolRef, {
-              id: finalSchoolId,
-              name: formData.schoolName || "Nueva Escuela",
-              activationCode: activationCode,
-              directorId: user.uid,
-              createdAt: new Date().toISOString()
-            }, { merge: true })
-          }
-
-          // Create the user's role profile
-          const profileRef = doc(firestore, "staff_roles", user.uid)
-          setDocumentNonBlocking(profileRef, {
-            role: selectedRole,
-            schoolId: finalSchoolId,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            email: user.email,
-            uid: user.uid,
-            createdAt: new Date().toISOString()
-          }, { merge: true })
-
-          toast({
-            title: "¡Configuración completada!",
-            description: selectedRole === "Administrador" 
-              ? `Bienvenido. Tu código de activación es: ${activationCode}`
-              : "Te has unido exitosamente a la escuela.",
-          })
-          
-          // Wait slightly for non-blocking writes to be locally available
-          setTimeout(() => {
-            router.push("/dashboard")
-          }, 1000)
-        } catch (e: any) {
-          setLoading(false)
-          toast({
-            variant: "destructive",
-            title: "Error de configuración",
-            description: "No pudimos crear tu perfil. Por favor contacta a soporte.",
-          })
-        }
-      }
-
-      finishSetup()
-    }
-  }, [user, loading, selectedRole, firestore, schoolInfo, formData, router])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 bg-gradient-to-br from-primary/5 via-background to-accent/5">

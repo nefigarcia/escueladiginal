@@ -22,9 +22,11 @@
         "role": { "type": "string", "enum": ["Administrador", "Academico", "Alumno"] },
         "schoolId": { "type": "string" },
         "firstName": { "type": "string" },
-        "lastName": { "type": "string" }
+        "lastName": { "type": "string" },
+        "email": { "type": "string" },
+        "uid": { "type": "string" }
       },
-      "required": ["role", "schoolId"]
+      "required": ["role", "schoolId", "uid"]
     },
     "Student": {
       "title": "Student",
@@ -37,7 +39,8 @@
         "firstName": { "type": "string" },
         "lastName": { "type": "string" },
         "gradeLevel": { "type": "string" },
-        "outstandingBalance": { "type": "number" }
+        "outstandingBalance": { "type": "number" },
+        "guardianName": { "type": "string", "description": "The name of the student's tutor or guardian." }
       },
       "required": ["id", "schoolId", "firstName", "lastName"]
     }
