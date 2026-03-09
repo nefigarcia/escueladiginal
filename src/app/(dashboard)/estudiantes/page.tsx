@@ -191,7 +191,6 @@ export default function EstudiantesPage() {
     if (!dateStr) return new Date().toISOString().split('T')[0];
     const parts = dateStr.split('/');
     if (parts.length === 3) {
-      // D/M/YYYY to YYYY-MM-DD
       const day = parts[0].padStart(2, '0');
       const month = parts[1].padStart(2, '0');
       const year = parts[2];
@@ -228,14 +227,13 @@ export default function EstudiantesPage() {
             const fName = getNormalizedValue(row, ["firstName", "Nombre"]);
             const lName = getNormalizedValue(row, ["lastName", "Apellidos"]);
             const grade = getNormalizedValue(row, ["gradeLevel", "Grado"]);
-            const totalAmtRaw = getNormalizedValue(row, ["totalAmount ", "totalAmount", "Total", "Monto"]);
+            const totalAmtRaw = getNormalizedValue(row, ["totalAmount", "totalAmount ", "Total", "Monto"]);
             const pDateRaw = getNormalizedValue(row, ["paymentDate", "Fecha"]);
-            const pMethod = getNormalizedValue(row, ["paymentMethod", "Metodo"]) || "Efectivo";
+            const pMethod = getNormalizedValue(row, ["paymentMethod", "Metodo"]) || "Transferencia";
             const received = getNormalizedValue(row, ["receivedFrom", "Recibido de", "Tutor"]);
             const monthStr = getNormalizedValue(row, ["month", "Mes"]);
             
-            // Concepts
-            const inscAmt = getNormalizedValue(row, ["Inscripcion"]);
+            const inscAmt = getNormalizedValue(row, ["Inscripcion", "Inscripción"]);
             const colAmt = getNormalizedValue(row, ["Colegiatura"]);
 
             if (!matriculaRaw) {
@@ -246,7 +244,6 @@ export default function EstudiantesPage() {
             const cleanMatricula = String(matriculaRaw).trim()
             let studentDocId = ""
             
-            // 1. Find or create student
             const sQuery = query(collection(firestore, "students"), where("studentIdNumber", "==", cleanMatricula), where("schoolId", "==", profile.schoolId), limit(1))
             const sSnap = await getDocs(sQuery)
             
@@ -258,8 +255,8 @@ export default function EstudiantesPage() {
                 firstName: fName ? String(fName).trim() : "Alumno",
                 lastName: lName ? String(lName).trim() : "Importado",
                 studentIdNumber: cleanMatricula,
-                gradeLevel: grade || "Importado",
-                address: getNormalizedValue(row, ["address", "Direccion"]) || "",
+                gradeLevel: grade || "N/A",
+                address: getNormalizedValue(row, ["address", "Direccion"]) || "N/A",
                 phone: getNormalizedValue(row, ["phone", "Telefono"]) || "",
                 guardianName: received || "",
                 outstandingBalance: 0,
@@ -269,27 +266,25 @@ export default function EstudiantesPage() {
               studentDocId = sSnap.docs[0].id
             }
 
-            // 2. If there is a total amount, create a payment record
             const totalAmt = parseFloat(String(totalAmtRaw || "0").replace(/[^0-9.-]+/g, ""))
             if (totalAmt > 0) {
               const paymentItems: any[] = []
               if (parseFloat(String(inscAmt || "0")) > 0) {
-                paymentItems.push({ id: "insc-" + Date.now(), name: "Inscripción", amount: parseFloat(String(inscAmt)), type: 'fee' })
+                paymentItems.push({ id: "insc-" + Math.random().toString(36).substr(2, 5), name: "Inscripción", amount: parseFloat(String(inscAmt)), type: 'fee' })
               }
               if (parseFloat(String(colAmt || "0")) > 0) {
-                paymentItems.push({ id: "col-" + Date.now(), name: "Colegiatura", amount: parseFloat(String(colAmt)), month: monthStr, type: 'fee' })
+                paymentItems.push({ id: "col-" + Math.random().toString(36).substr(2, 5), name: "Colegiatura / Inscripción", amount: totalAmt, month: monthStr, type: 'fee' })
               }
               
-              // If no items were detected but there is a total, add a generic item
               if (paymentItems.length === 0) {
-                paymentItems.push({ id: "gen-" + Date.now(), name: "Pago General", amount: totalAmt, type: 'custom' })
+                paymentItems.push({ id: "gen-" + Math.random().toString(36).substr(2, 5), name: "Pago General", amount: totalAmt, type: 'custom' })
               }
 
               const studentPaymentsRef = collection(firestore, "students", studentDocId, "payments")
               await addDoc(studentPaymentsRef, {
                 schoolId: profile.schoolId,
                 studentId: studentDocId,
-                studentName: `${fName || "Alumno"} ${lName || ""}`.trim(),
+                studentName: (fName && lName) ? `${fName} ${lName}` : "Alumno Importado",
                 items: paymentItems,
                 totalAmount: totalAmt,
                 paymentDate: parseDate(String(pDateRaw)),
@@ -487,7 +482,6 @@ export default function EstudiantesPage() {
         </CardContent>
       </Card>
 
-      {/* Dialogo de Edición */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>

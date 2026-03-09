@@ -112,7 +112,6 @@ export default function PagosPage() {
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }
   ])
 
-  // Logic to find current student document if logged in as Alumno
   const [currentUserStudentDoc, setCurrentUserStudentDoc] = React.useState<any | null>(null)
   React.useEffect(() => {
     async function findStudent() {
@@ -137,20 +136,12 @@ export default function PagosPage() {
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null;
     
-    // Alumno viewing their own history
     if (isStudent && currentUserStudentDoc) {
-       return query(
-         collection(firestore, "students", currentUserStudentDoc.id, "payments"),
-         where("schoolId", "==", profile.schoolId)
-       )
+       return collection(firestore, "students", currentUserStudentDoc.id, "payments");
     }
     
-    // Staff viewing a searched student's history
     if (!isStudent && selectedStudent) {
-      return query(
-        collection(firestore, "students", selectedStudent.id, "payments"),
-        where("schoolId", "==", profile.schoolId)
-      );
+      return collection(firestore, "students", selectedStudent.id, "payments");
     }
     return null;
   }, [firestore, selectedStudent, isStudent, profile, currentUserStudentDoc])
