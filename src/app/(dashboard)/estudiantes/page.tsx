@@ -2,6 +2,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { 
   Table, 
   TableBody, 
@@ -22,7 +23,7 @@ import {
   Users,
   FileUp,
   Loader2,
-  CheckCircle2
+  History
 } from "lucide-react"
 import { 
   Card, 
@@ -57,6 +58,7 @@ import Papa from "papaparse"
 export default function EstudiantesPage() {
   const { firestore } = useFirestore()
   const { user } = useUser()
+  const router = useRouter()
   const [mounted, setMounted] = React.useState(false)
   
   React.useEffect(() => {
@@ -72,6 +74,7 @@ export default function EstudiantesPage() {
   
   const [searchTerm, setSearchTerm] = React.useState("")
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false)
   const [isImporting, setIsImporting] = React.useState(false)
   const [importProgress, setImportProgress] = React.useState(0)
   
@@ -85,6 +88,8 @@ export default function EstudiantesPage() {
     phone: "",
     email: "",
   })
+
+  const [editingStudent, setEditingStudent] = React.useState<any>(null)
 
   const filteredStudents = (students || []).filter(s => 
     `${s.firstName} ${s.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -139,10 +144,34 @@ export default function EstudiantesPage() {
     }
   }
 
-  // Helper to find column values case-insensitively and without accents
+  const handleOpenEdit = (student: any) => {
+    setEditingStudent(student)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdateStudent = () => {
+    if (!firestore || !editingStudent) return
+
+    const studentDocRef = doc(firestore, "students", editingStudent.id)
+    updateDocumentNonBlocking(studentDocRef, {
+      ...editingStudent,
+      updatedAt: serverTimestamp(),
+    })
+
+    setIsEditDialogOpen(false)
+    setEditingStudent(null)
+    toast({ title: "Estudiante actualizado" })
+  }
+
+  const handleDeleteStudent = (id: string) => {
+    if (!firestore) return;
+    deleteDocumentNonBlocking(doc(firestore, "students", id))
+    toast({ title: "Estudiante eliminado" })
+  }
+
+  // Normalizador de CSV
   const getNormalizedValue = (row: any, keys: string[]) => {
     const normalizedRow = Object.keys(row).reduce((acc: any, key) => {
-      // Clean and normalize key
       const normKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
       acc[normKey] = row[key];
       return acc;
@@ -162,7 +191,6 @@ export default function EstudiantesPage() {
     setIsImporting(true)
     setImportProgress(0)
 
-    // Using ISO-8859-1 encoding to fix accent issues from Excel-generated CSVs
     Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
@@ -171,7 +199,7 @@ export default function EstudiantesPage() {
         const rows = results.data as any[]
         if (rows.length === 0) {
           setIsImporting(false)
-          toast({ variant: "destructive", title: "Archivo vacío", description: "No se encontraron datos." })
+          toast({ variant: "destructive", title: "Archivo vacío" })
           return
         }
 
@@ -180,18 +208,11 @@ export default function EstudiantesPage() {
 
         for (const row of rows) {
           try {
-            // 1. Extract values using the headers provided by the user
             const matriculaRaw = getNormalizedValue(row, ["studentIdNumber", "Matricula", "ID", "Matrícula"]);
             const fName = getNormalizedValue(row, ["firstName", "Nombre"]);
             const lName = getNormalizedValue(row, ["lastName", "Apellidos"]);
-            const fechaRaw = getNormalizedValue(row, ["paymentDate", "Fecha", "Date"]);
             const cantidadRaw = getNormalizedValue(row, ["totalAmount", "totalAmount ", "Cantidad", "Monto"]);
-            const month = getNormalizedValue(row, ["month", "Mes", "Month"]);
-            const receivedFrom = getNormalizedValue(row, ["receivedFrom", "Recibi de", "Tutor", "Guardian"]);
-            const address = getNormalizedValue(row, ["address", "Domicilio", "Dirección", "Direccion"]);
-            const phone = getNormalizedValue(row, ["phone", "Telefono", "Teléfono"]);
             const grade = getNormalizedValue(row, ["gradeLevel", "Grado"]);
-            const method = getNormalizedValue(row, ["paymentMethod", "metodo", "transBancaria"]);
 
             if (!matriculaRaw) {
               processed++
@@ -199,99 +220,33 @@ export default function EstudiantesPage() {
             }
 
             const cleanMatricula = String(matriculaRaw).trim()
-            const cleanFName = fName ? String(fName).trim() : "Alumno"
-            const cleanLName = lName ? String(lName).trim() : "Importado"
-            const cleanCantidad = parseFloat(String(cantidadRaw || "0").replace(/[$,]/g, ""));
-            
-            // Format date D/M/YYYY to YYYY-MM-DD
-            let cleanFecha = new Date().toISOString().split('T')[0]
-            if (fechaRaw) {
-              const dateStr = String(fechaRaw).trim()
-              if (dateStr.includes('/')) {
-                const parts = dateStr.split('/')
-                if (parts.length === 3) {
-                  const d = parts[0]
-                  const m = parts[1]
-                  const y = parts[2]
-                  cleanFecha = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-                }
-              }
-            }
-
-            // 2. Find or Create Student
             const sQuery = query(collection(firestore, "students"), where("studentIdNumber", "==", cleanMatricula), limit(1))
             const sSnap = await getDocs(sQuery)
             
-            let studentId = ""
-            let studentName = `${cleanFName} ${cleanLName}`
-
             if (sSnap.empty) {
               const newDocRef = doc(collection(firestore, "students"))
-              studentId = newDocRef.id
-              
               await setDocumentNonBlocking(newDocRef, {
-                firstName: cleanFName,
-                lastName: cleanLName,
+                firstName: fName ? String(fName).trim() : "Alumno",
+                lastName: lName ? String(lName).trim() : "Importado",
                 studentIdNumber: cleanMatricula,
-                address: address || "",
-                guardianName: receivedFrom || "",
                 gradeLevel: grade || "Importado",
-                phone: phone || "",
                 outstandingBalance: 0,
-                enrollmentDate: cleanFecha,
                 createdAt: serverTimestamp(),
               }, { merge: true })
-            } else {
-              const sDoc = sSnap.docs[0]
-              studentId = sDoc.id
-              const sData = sDoc.data()
-              studentName = `${sData.firstName} ${sData.lastName}`
+              successCount++
             }
-
-            // 3. Register Payment
-            const paymentsColRef = collection(firestore, "students", studentId, "payments")
-            addDocumentNonBlocking(paymentsColRef, {
-              studentId,
-              studentName,
-              totalAmount: cleanCantidad,
-              paymentDate: cleanFecha,
-              paymentMethod: method || "Importación",
-              receivedFrom: receivedFrom || "Tutor Importado",
-              status: "completado",
-              items: [{
-                id: Math.random().toString(36).substr(2, 9),
-                name: "Concepto Importado",
-                amount: cleanCantidad,
-                month: month || "",
-                type: 'fee'
-              }],
-              createdAt: serverTimestamp(),
-            })
-
-            successCount++
           } catch (err) {
-            console.error("Error processing row:", err)
+            console.error(err)
           }
-          
           processed++
           setImportProgress(Math.round((processed / rows.length) * 100))
         }
 
         setIsImporting(false)
-        toast({
-          title: "Importación Finalizada",
-          description: `Se han procesado ${successCount} registros exitosamente.`,
-        })
-        
+        toast({ title: "Importación Finalizada", description: `Se han procesado ${successCount} nuevos registros.` })
         e.target.value = ""
       }
     })
-  }
-
-  const handleDeleteStudent = (id: string) => {
-    if (!firestore) return;
-    deleteDocumentNonBlocking(doc(firestore, "students", id))
-    toast({ title: "Estudiante eliminado" })
   }
 
   if (!mounted) return null
@@ -397,9 +352,6 @@ export default function EstudiantesPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Button variant="outline" className="gap-2">
-              <Filter className="h-4 w-4" /> Filtros
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -442,8 +394,12 @@ export default function EstudiantesPage() {
                             <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem className="gap-2"><Edit className="h-4 w-4" /> Editar</DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2"><Users className="h-4 w-4" /> Historial</DropdownMenuItem>
+                            <DropdownMenuItem className="gap-2" onClick={() => handleOpenEdit(student)}>
+                              <Edit className="h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="gap-2" onClick={() => router.push(`/pagos?studentId=${student.studentIdNumber}`)}>
+                              <History className="h-4 w-4" /> Historial
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive gap-2" onClick={() => handleDeleteStudent(student.id)}>
                               <Trash2 className="h-4 w-4" /> Eliminar
@@ -461,6 +417,58 @@ export default function EstudiantesPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialogo de Edición */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Editar Estudiante</DialogTitle>
+            <DialogDescription>Actualiza la información del alumno.</DialogDescription>
+          </DialogHeader>
+          {editingStudent && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Nombres</Label>
+                  <Input value={editingStudent.firstName} onChange={(e) => setEditingStudent({...editingStudent, firstName: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Apellidos</Label>
+                  <Input value={editingStudent.lastName} onChange={(e) => setEditingStudent({...editingStudent, lastName: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Matrícula / ID</Label>
+                  <Input value={editingStudent.studentIdNumber} onChange={(e) => setEditingStudent({...editingStudent, studentIdNumber: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Grado</Label>
+                  <Input value={editingStudent.gradeLevel} onChange={(e) => setEditingStudent({...editingStudent, gradeLevel: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Tutor</Label>
+                  <Input value={editingStudent.guardianName} onChange={(e) => setEditingStudent({...editingStudent, guardianName: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Teléfono</Label>
+                  <Input value={editingStudent.phone} onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Dirección</Label>
+                <Input value={editingStudent.address} onChange={(e) => setEditingStudent({...editingStudent, address: e.target.value})} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleUpdateStudent}>Guardar Cambios</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
