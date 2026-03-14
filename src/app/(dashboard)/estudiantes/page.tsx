@@ -20,7 +20,9 @@ import {
   Trash2,
   FileUp,
   Loader2,
-  History
+  History,
+  Phone,
+  Mail
 } from "lucide-react"
 import { 
   Card, 
@@ -229,6 +231,8 @@ export default function EstudiantesPage() {
             const pDateRaw = getNormalizedValue(row, ["paymentDate", "Fecha"]);
             const received = getNormalizedValue(row, ["receivedFrom", "Recibido de", "Tutor"]);
             const monthStr = getNormalizedValue(row, ["month", "Mes"]);
+            const emailRaw = getNormalizedValue(row, ["email", "Correo"]);
+            const phoneRaw = getNormalizedValue(row, ["phone", "Telefono"]);
             
             const inscAmt = getNormalizedValue(row, ["Inscripcion", "Inscripción"]);
             const colAmt = getNormalizedValue(row, ["Colegiatura"]);
@@ -254,7 +258,8 @@ export default function EstudiantesPage() {
                 studentIdNumber: cleanMatricula,
                 gradeLevel: grade || "N/A",
                 address: getNormalizedValue(row, ["address", "Direccion"]) || "N/A",
-                phone: getNormalizedValue(row, ["phone", "Telefono"]) || "",
+                phone: phoneRaw ? String(phoneRaw).trim() : "",
+                email: emailRaw ? String(emailRaw).trim() : "",
                 guardianName: received || "",
                 outstandingBalance: 0,
                 createdAt: serverTimestamp(),
@@ -377,6 +382,10 @@ export default function EstudiantesPage() {
                     <Input value={newStudent.phone} onChange={(e) => setNewStudent({...newStudent, phone: e.target.value})} />
                   </div>
                 </div>
+                <div className="space-y-2">
+                    <Label>Correo del Tutor</Label>
+                    <Input type="email" value={newStudent.email} onChange={(e) => setNewStudent({...newStudent, email: e.target.value})} />
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancelar</Button>
@@ -402,29 +411,29 @@ export default function EstudiantesPage() {
       )}
 
       <Card className="border-none shadow-sm">
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 bg-muted/20 border-b">
           <div className="flex flex-col md:flex-row gap-4 items-center">
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input 
                 placeholder="Buscar por nombre o ID..." 
-                className="pl-9"
+                className="pl-9 bg-white"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="rounded-md border bg-white overflow-hidden">
+        <CardContent className="p-0">
+          <div className="rounded-none border-0 bg-white overflow-hidden">
             <Table>
-              <TableHeader className="bg-muted/50">
+              <TableHeader className="bg-muted/30">
                 <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Estudiante</TableHead>
-                  <TableHead>Tutor</TableHead>
-                  <TableHead>Grado</TableHead>
-                  <TableHead>Inscripción</TableHead>
+                  <TableHead className="font-bold">ID</TableHead>
+                  <TableHead className="font-bold">Estudiante</TableHead>
+                  <TableHead className="font-bold">Tutor</TableHead>
+                  <TableHead className="font-bold">Grado</TableHead>
+                  <TableHead className="font-bold">Estado de Cuenta</TableHead>
                   <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -433,22 +442,45 @@ export default function EstudiantesPage() {
                   <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
                 ) : filteredStudents.length > 0 ? (
                   filteredStudents.map((student) => (
-                    <TableRow key={student.id}>
+                    <TableRow key={student.id} className="hover:bg-muted/10">
                       <TableCell className="font-medium text-primary">{student.studentIdNumber}</TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-semibold">{student.firstName} {student.lastName}</span>
+                          <span className="font-semibold text-foreground">{student.firstName} {student.lastName}</span>
                           <span className="text-[10px] text-muted-foreground uppercase">{student.address}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">
-                        <div className="flex flex-col">
-                          <span>{student.guardianName || "-"}</span>
-                          <span className="text-[10px] text-muted-foreground">{student.phone}</span>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <span className="font-medium text-foreground">{student.guardianName || "Sin tutor"}</span>
+                          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" /> {student.phone || "---"}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> {student.email || "---"}
+                            </span>
+                          </div>
                         </div>
                       </TableCell>
-                      <TableCell><Badge variant="secondary">{student.gradeLevel}</Badge></TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{student.enrollmentDate}</TableCell>
+                      <TableCell><Badge variant="outline" className="rounded-md">{student.gradeLevel}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {(student.outstandingBalance || 0) > 0 ? (
+                            <>
+                              <div className="h-2 w-2 rounded-full bg-rose-500" />
+                              <span className="font-bold text-rose-600">
+                                ${Number(student.outstandingBalance).toLocaleString()} MXN
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <span className="font-bold text-emerald-600">Al corriente</span>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -459,7 +491,7 @@ export default function EstudiantesPage() {
                               <Edit className="h-4 w-4" /> Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem className="gap-2" onClick={() => router.push(`/pagos?studentId=${student.studentIdNumber}`)}>
-                              <History className="h-4 w-4" /> Historial
+                              <History className="h-4 w-4" /> Historial de Pagos
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive gap-2" onClick={() => handleDeleteStudent(student.id)}>
@@ -516,6 +548,10 @@ export default function EstudiantesPage() {
                   <Label>Teléfono</Label>
                   <Input value={editingStudent.phone} onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})} />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Correo del Tutor</Label>
+                <Input type="email" value={editingStudent.email} onChange={(e) => setEditingStudent({...editingStudent, email: e.target.value})} />
               </div>
               <div className="space-y-2">
                 <Label>Dirección</Label>
