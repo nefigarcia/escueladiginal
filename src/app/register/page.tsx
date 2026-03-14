@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2, AlertCircle } from "lucide-react"
-import { useAuth, useFirestore, setDocumentNonBlocking, useUser } from "@/firebase"
-import { doc, collection, query, where, getDocs, limit, serverTimestamp } from "firebase/firestore"
+import { useAuth, useFirestore, useUser } from "@/firebase"
+import { doc, collection, query, where, getDocs, limit, serverTimestamp, setDoc } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { createUserWithEmailAndPassword } from "firebase/auth"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -115,9 +115,10 @@ export default function RegisterPage() {
       const finalSchoolId = schoolInfo?.id || "school-" + Math.random().toString(36).substring(7)
       const schoolActivationCode = Math.random().toString(36).substring(7).toUpperCase()
 
+      // Critical: Await document creation to ensure session is ready on redirect
       if (selectedRole === "Administrador") {
         const schoolRef = doc(firestore, "schools", finalSchoolId)
-        setDocumentNonBlocking(schoolRef, {
+        await setDoc(schoolRef, {
           id: finalSchoolId,
           name: formData.schoolName || "Nueva Escuela",
           activationCode: schoolActivationCode,
@@ -127,7 +128,7 @@ export default function RegisterPage() {
       }
 
       const profileRef = doc(firestore, "staff_roles", user.uid)
-      setDocumentNonBlocking(profileRef, {
+      await setDoc(profileRef, {
         role: selectedRole,
         schoolId: finalSchoolId,
         firstName: formData.firstName,

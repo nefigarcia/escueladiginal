@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -209,7 +208,6 @@ export default function EstudiantesPage() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
-      encoding: "ISO-8859-1",
       complete: async (results) => {
         const rows = results.data as any[]
         if (rows.length === 0) {
@@ -229,7 +227,6 @@ export default function EstudiantesPage() {
             const grade = getNormalizedValue(row, ["gradeLevel", "Grado"]);
             const totalAmtRaw = getNormalizedValue(row, ["totalAmount", "totalAmount ", "Total", "Monto"]);
             const pDateRaw = getNormalizedValue(row, ["paymentDate", "Fecha"]);
-            const pMethod = getNormalizedValue(row, ["paymentMethod", "Metodo"]) || "Transferencia";
             const received = getNormalizedValue(row, ["receivedFrom", "Recibido de", "Tutor"]);
             const monthStr = getNormalizedValue(row, ["month", "Mes"]);
             
@@ -288,7 +285,7 @@ export default function EstudiantesPage() {
                 items: paymentItems,
                 totalAmount: totalAmt,
                 paymentDate: parseDate(String(pDateRaw)),
-                paymentMethod: pMethod,
+                paymentMethod: getNormalizedValue(row, ["paymentMethod", "Metodo"]) || "Transferencia",
                 receivedFrom: received || "Administración",
                 status: 'completado',
                 createdAt: serverTimestamp(),

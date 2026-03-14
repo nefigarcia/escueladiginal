@@ -50,11 +50,6 @@ interface PaymentItem {
   month?: string;
 }
 
-const MONTHS = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-]
-
 export default function PagosPage() {
   const { firestore } = useFirestore()
   const { user } = useUser()
@@ -64,10 +59,6 @@ export default function PagosPage() {
   
   const pdfTemplateRef = React.useRef<HTMLDivElement>(null)
   const [pdfData, setPdfData] = React.useState<any>(null)
-
-  const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false)
-  const [editingPayment, setEditingPayment] = React.useState<any | null>(null)
-  const [editItems, setEditItems] = React.useState<PaymentItem[]>([])
 
   React.useEffect(() => {
     setMounted(true)
@@ -104,7 +95,6 @@ export default function PagosPage() {
   const [paymentMethod, setPaymentMethod] = React.useState<string>("Efectivo")
   const [paymentDate, setPaymentDate] = React.useState<string>(new Date().toISOString().split('T')[0])
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
-  const [formTotal, setFormTotal] = React.useState<number>(0)
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const [items, setItems] = React.useState<PaymentItem[]>([
@@ -143,13 +133,14 @@ export default function PagosPage() {
 
     if (!studentId) return null;
     
+    // Using a simpler query to ensure visibility of all transactions
     return query(
       collection(firestore, "students", studentId, "payments"),
-      orderBy("createdAt", "desc")
+      orderBy("paymentDate", "desc")
     );
   }, [firestore, selectedStudent, isStudent, profile, currentUserStudentDoc])
   
-  const { data: payments } = useCollection(paymentsQuery)
+  const { data: payments, isLoading: isLoadingPayments } = useCollection(paymentsQuery)
 
   const handleSearchStudent = () => {
     const student = students?.find(s => s.studentIdNumber === selectedStudentId)
@@ -162,35 +153,23 @@ export default function PagosPage() {
     }
   }
 
-  const editTotalAmount = editItems.reduce((sum, item) => sum + item.amount, 0)
-
-  const addItem = (type: 'fee' | 'custom', isEdit: boolean = false) => {
+  const addItem = (type: 'fee' | 'custom') => {
     const newItem: PaymentItem = { 
       id: Math.random().toString(36).substr(2, 9), 
       type, 
       name: '', 
       amount: 0 
     };
-    if (isEdit) {
-      setEditItems([...editItems, newItem])
-    } else {
-      setItems([...items, newItem])
-    }
+    setItems([...items, newItem])
   }
 
-  const removeItem = (id: string, isEdit: boolean = false) => {
-    if (isEdit) {
-      if (editItems.length === 1) return
-      setEditItems(editItems.filter(i => i.id !== id))
-    } else {
-      if (items.length === 1) return
-      setItems(items.filter(i => i.id !== id))
-    }
+  const removeItem = (id: string) => {
+    if (items.length === 1) return
+    setItems(items.filter(i => i.id !== id))
   }
 
-  const updateItem = (id: string, updates: Partial<PaymentItem>, isEdit: boolean = false) => {
-    const list = isEdit ? editItems : items;
-    const newList = list.map(item => {
+  const updateItem = (id: string, updates: Partial<PaymentItem>) => {
+    const newList = items.map(item => {
       if (item.id === id) {
         const updated = { ...item, ...updates }
         if (updates.feeId && item.type === 'fee') {
@@ -204,13 +183,14 @@ export default function PagosPage() {
       }
       return item
     });
-    
-    if (isEdit) setEditItems(newList);
-    else setItems(newList);
+    setItems(newList);
   }
 
   const handleProcessPayment = async () => {
-    if (!selectedStudent || formTotal <= 0 || !firestore || !profile?.schoolId) return
+    if (!selectedStudent || !firestore || !profile?.schoolId) return
+    const total = items.reduce((sum, it) => sum + (it.amount || 0), 0)
+    if (total <= 0) return
+
     setIsProcessing(true)
     
     try {
@@ -220,7 +200,7 @@ export default function PagosPage() {
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
         items: items,
-        totalAmount: formTotal,
+        totalAmount: total,
         paymentDate: paymentDate,
         paymentMethod: paymentMethod,
         receivedFrom: receivedFrom,
@@ -232,7 +212,7 @@ export default function PagosPage() {
 
       const studentDocRef = doc(firestore, "students", selectedStudent.id)
       updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - formTotal),
+        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - total),
         updatedAt: serverTimestamp(),
       })
       
@@ -240,31 +220,10 @@ export default function PagosPage() {
       setSelectedStudent(null)
       setSelectedStudentId("")
       setReceivedFrom("")
-      setFormTotal(0)
       setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }])
     } finally {
       setIsProcessing(false)
     }
-  }
-
-  const handleOpenEdit = (payment: any) => {
-    setEditingPayment(payment)
-    setEditItems(payment.items || [])
-    setIsEditDialogOpen(true)
-  }
-
-  const handleUpdatePayment = () => {
-    if (!firestore || !editingPayment) return
-    const paymentDocRef = doc(firestore, "students", editingPayment.studentId, "payments", editingPayment.id)
-    updateDocumentNonBlocking(paymentDocRef, {
-      ...editingPayment,
-      items: editItems,
-      totalAmount: editTotalAmount,
-      updatedAt: serverTimestamp(),
-    })
-    setIsEditDialogOpen(false)
-    setEditingPayment(null)
-    toast({ title: "Pago Actualizado" })
   }
 
   const handleWhatsAppNotify = async (payment: any) => {
@@ -280,7 +239,7 @@ export default function PagosPage() {
         templateName: "avisoGeneral",
         contextData: {
           studentName: payment.studentName,
-          additionalDetails: `Confirmamos el recibo de su pago por ${payment.totalAmount} MXN. Gracias.`
+          additionalDetails: `Confirmamos el recibo de su pago por $${payment.totalAmount} MXN. Gracias.`
         }
       })
       const text = encodeURIComponent(draft.draftMessage)
@@ -320,6 +279,8 @@ export default function PagosPage() {
   };
 
   if (!mounted) return null
+
+  const formTotal = items.reduce((sum, it) => sum + (it.amount || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -428,7 +389,7 @@ export default function PagosPage() {
                   <div className="flex items-center justify-between border-b pb-2">
                     <Label className="text-lg font-bold">Conceptos de Pago</Label>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1"><Plus className="h-4 w-4" /> Tarifa</Button>
+                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1"><Plus className="h-4 w-4" /> Catálogo</Button>
                       <Button variant="outline" size="sm" onClick={() => addItem('custom')} className="gap-1"><Plus className="h-4 w-4" /> Otro</Button>
                     </div>
                   </div>
@@ -461,7 +422,7 @@ export default function PagosPage() {
                   <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
                     <div className="text-right">
                       <p className="text-xs uppercase opacity-50 font-bold">Total</p>
-                      <p className="text-2xl font-black text-primary">${items.reduce((sum, it) => sum + (it.amount || 0), 0).toLocaleString()} MXN</p>
+                      <p className="text-2xl font-black text-primary">${formTotal.toLocaleString()} MXN</p>
                     </div>
                   </div>
                 </div>
@@ -474,6 +435,7 @@ export default function PagosPage() {
                       <SelectContent>
                         <SelectItem value="Efectivo">Efectivo</SelectItem>
                         <SelectItem value="Transferencia">Transferencia</SelectItem>
+                        <SelectItem value="Tarjeta">Tarjeta</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -507,7 +469,9 @@ export default function PagosPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments?.length ? payments.map(p => (
+                    {isLoadingPayments ? (
+                      <TableRow><TableCell colSpan={4} className="text-center py-10"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
+                    ) : payments?.length ? payments.map(p => (
                       <TableRow key={p.id}>
                         <TableCell>{new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}</TableCell>
                         <TableCell className="font-bold">{p.studentName}</TableCell>
@@ -526,7 +490,7 @@ export default function PagosPage() {
                     )) : (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
-                          No se encontraron transacciones.
+                          {selectedStudent || isStudent ? "No se encontraron transacciones." : "Busca un alumno para ver su historial."}
                         </TableCell>
                       </TableRow>
                     )}
