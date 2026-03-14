@@ -2,6 +2,7 @@
 "use client"
 
 import * as React from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,6 +52,9 @@ const MONTHS = [
 export default function PagosPage() {
   const { firestore } = useFirestore()
   const { user } = useUser()
+  const searchParams = useSearchParams()
+  const initialStudentId = searchParams.get('studentId') || ""
+  
   const [mounted, setMounted] = React.useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = React.useState<string | null>(null)
   const [isSendingWA, setIsSendingWA] = React.useState<string | null>(null)
@@ -58,9 +62,15 @@ export default function PagosPage() {
   const pdfTemplateRef = React.useRef<HTMLDivElement>(null)
   const [pdfData, setPdfData] = React.useState<any>(null)
 
+  const [selectedStudentId, setSelectedStudentId] = React.useState<string>(initialStudentId)
+  const [activeStudentId, setActiveStudentId] = React.useState<string | null>(null)
+
   React.useEffect(() => {
     setMounted(true)
-  }, [])
+    if (initialStudentId) {
+      handleSearchStudent(initialStudentId)
+    }
+  }, [initialStudentId])
 
   const profileRef = useMemoFirebase(() => {
     if (!firestore || !user) return null
@@ -88,8 +98,13 @@ export default function PagosPage() {
 
   const isStudent = profile?.role === "Alumno"
 
-  const [selectedStudentId, setSelectedStudentId] = React.useState<string>("")
-  const [selectedStudent, setSelectedStudent] = React.useState<any | null>(null)
+  // Real-time Selected Student Document
+  const selectedStudentRef = useMemoFirebase(() => {
+    if (!firestore || !activeStudentId) return null
+    return doc(firestore, "students", activeStudentId)
+  }, [firestore, activeStudentId])
+  const { data: activeStudent, isLoading: isLoadingActiveStudent } = useDoc(selectedStudentRef)
+
   const [paymentMethod, setPaymentMethod] = React.useState<string>("Efectivo")
   const [paymentDate, setPaymentDate] = React.useState<string>(new Date().toISOString().split('T')[0])
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
@@ -99,54 +114,36 @@ export default function PagosPage() {
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }
   ])
 
-  const [currentUserStudentDoc, setCurrentUserStudentDoc] = React.useState<any | null>(null)
-
+  // If the user is a student, automatically set their ID
   React.useEffect(() => {
-    async function findStudent() {
-      if (isStudent && profile?.studentIdNumber && firestore && profile?.schoolId) {
-        const q = query(
-          collection(firestore, "students"), 
-          where("schoolId", "==", profile.schoolId),
-          where("studentIdNumber", "==", profile.studentIdNumber),
-          limit(1)
-        )
-        const snap = await getDocs(q)
-        if (!snap.empty) {
-          setCurrentUserStudentDoc({ ...snap.docs[0].data(), id: snap.docs[0].id })
-        }
-      }
+    if (isStudent && profile?.studentIdNumber && students) {
+      const student = students.find(s => s.studentIdNumber === profile.studentIdNumber)
+      if (student) setActiveStudentId(student.id)
     }
-    findStudent()
-  }, [isStudent, profile, firestore])
+  }, [isStudent, profile, students])
 
   const paymentsQuery = useMemoFirebase(() => {
-    if (!firestore || !profile?.schoolId) return null;
-    
-    let studentId = null;
-    if (isStudent && currentUserStudentDoc) {
-       studentId = currentUserStudentDoc.id;
-    } else if (!isStudent && selectedStudent) {
-      studentId = selectedStudent.id;
-    }
-
-    if (!studentId) return null;
-    
+    if (!firestore || !activeStudentId) return null;
     return query(
-      collection(firestore, "students", studentId, "payments"),
+      collection(firestore, "students", activeStudentId, "payments"),
       orderBy("paymentDate", "desc")
     );
-  }, [firestore, selectedStudent, isStudent, profile, currentUserStudentDoc])
+  }, [firestore, activeStudentId])
   
   const { data: payments, isLoading: isLoadingPayments } = useCollection(paymentsQuery)
 
-  const handleSearchStudent = () => {
-    const student = students?.find(s => s.studentIdNumber === selectedStudentId)
+  const handleSearchStudent = async (idToSearch?: string) => {
+    const searchId = typeof idToSearch === 'string' ? idToSearch : selectedStudentId
+    if (!searchId || !students) return
+
+    const student = students.find(s => s.studentIdNumber === searchId)
     if (student) {
-      setSelectedStudent(student)
+      setActiveStudentId(student.id)
       setReceivedFrom(student.guardianName || "")
       toast({ title: "Alumno encontrado" })
     } else {
-      toast({ variant: "destructive", title: "No encontrado" })
+      setActiveStudentId(null)
+      toast({ variant: "destructive", title: "No encontrado", description: "Verifica la matrícula e intenta de nuevo." })
     }
   }
 
@@ -185,18 +182,18 @@ export default function PagosPage() {
   }
 
   const handleProcessPayment = async () => {
-    if (!selectedStudent || !firestore || !profile?.schoolId) return
+    if (!activeStudent || !firestore || !profile?.schoolId) return
     const total = items.reduce((sum, it) => sum + (it.amount || 0), 0)
     if (total <= 0) return
 
     setIsProcessing(true)
     
     try {
-      const studentPaymentsRef = collection(firestore, "students", selectedStudent.id, "payments")
+      const studentPaymentsRef = collection(firestore, "students", activeStudent.id, "payments")
       const paymentData = {
         schoolId: profile.schoolId,
-        studentId: selectedStudent.id,
-        studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
+        studentId: activeStudent.id,
+        studentName: `${activeStudent.firstName} ${activeStudent.lastName}`,
         items: items,
         totalAmount: total,
         paymentDate: paymentDate,
@@ -206,18 +203,18 @@ export default function PagosPage() {
         createdAt: serverTimestamp(),
       }
       
-      addDocumentNonBlocking(studentPaymentsRef, paymentData)
+      await addDocumentNonBlocking(studentPaymentsRef, paymentData)
 
-      const studentDocRef = doc(firestore, "students", selectedStudent.id)
-      updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, (selectedStudent.outstandingBalance || 0) - total),
+      const studentDocRef = doc(firestore, "students", activeStudent.id)
+      await updateDocumentNonBlocking(studentDocRef, {
+        outstandingBalance: Math.max(0, (activeStudent.outstandingBalance || 0) - total),
         updatedAt: serverTimestamp(),
       })
       
-      toast({ title: "Pago Procesado" })
-      setSelectedStudent(null)
-      setSelectedStudentId("")
+      toast({ title: "Pago Procesado con Éxito" })
       setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }])
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error al procesar", description: "Ocurrió un problema al guardar el pago." })
     } finally {
       setIsProcessing(false)
     }
@@ -226,23 +223,21 @@ export default function PagosPage() {
   const handleWhatsAppNotify = async (payment: any) => {
     setIsSendingWA(payment.id)
     try {
-      const studentSnap = await getDoc(doc(firestore!, "students", payment.studentId))
-      const student = studentSnap.data()
-      if (!student?.phone) {
-        toast({ variant: "destructive", title: "Sin teléfono" })
+      if (!activeStudent?.phone) {
+        toast({ variant: "destructive", title: "Sin teléfono", description: "El alumno no tiene un número registrado." })
         return
       }
       const draft = await smartParentCommunicationsDrafting({
         templateName: "avisoGeneral",
         contextData: {
           studentName: payment.studentName,
-          additionalDetails: `Confirmamos el recibo de su pago por $${payment.totalAmount} MXN. Gracias.`
+          additionalDetails: `Confirmamos el recibo de su pago por $${payment.totalAmount.toLocaleString()} MXN el día ${new Date(payment.paymentDate + 'T12:00:00').toLocaleDateString()}. ¡Gracias!`
         }
       })
       const text = encodeURIComponent(draft.draftMessage)
-      window.open(`https://wa.me/52${student.phone}?text=${text}`, '_blank')
+      window.open(`https://wa.me/52${activeStudent.phone}?text=${text}`, '_blank')
     } catch (e) {
-      toast({ variant: "destructive", title: "Error" })
+      toast({ variant: "destructive", title: "Error al notificar" })
     } finally {
       setIsSendingWA(null)
     }
@@ -252,11 +247,9 @@ export default function PagosPage() {
     if (!school || !firestore) return;
     setIsGeneratingPDF(payment.id);
     try {
-      const studentSnap = await getDoc(doc(firestore, "students", payment.studentId));
-      const studentData = studentSnap.exists() ? studentSnap.data() : null;
       const fullData = {
         payment,
-        student: studentData,
+        student: activeStudent,
         school,
         montoEnLetra: numberToWords(payment.totalAmount || 0),
         dateFormatted: new Date(payment.paymentDate + 'T12:00:00').toLocaleDateString()
@@ -349,7 +342,7 @@ export default function PagosPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-headline font-bold text-primary">Pagos y Finanzas</h2>
-          <p className="text-muted-foreground">Gestión financiera escolar inteligente.</p>
+          <p className="text-muted-foreground">Gestión financiera escolar inteligente para {school?.name || "tu escuela"}.</p>
         </div>
       </div>
 
@@ -369,15 +362,15 @@ export default function PagosPage() {
               <CardContent className="pt-6 space-y-6">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>ID Estudiante</Label>
+                    <Label>ID Estudiante (Matrícula)</Label>
                     <div className="flex gap-2">
-                      <Input value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} placeholder="Matrícula..." />
-                      <Button onClick={handleSearchStudent} size="icon" variant="secondary"><Search className="h-4 w-4" /></Button>
+                      <Input value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)} placeholder="Matrícula..." onKeyDown={(e) => e.key === 'Enter' && handleSearchStudent()} />
+                      <Button onClick={() => handleSearchStudent()} size="icon" variant="secondary"><Search className="h-4 w-4" /></Button>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Alumno</Label>
-                    <Input value={selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : ""} disabled className="bg-muted/50" />
+                    <Input value={activeStudent ? `${activeStudent.firstName} ${activeStudent.lastName}` : ""} disabled className="bg-muted/50" />
                   </div>
                 </div>
 
@@ -428,7 +421,7 @@ export default function PagosPage() {
 
                   <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
                     <div className="text-right">
-                      <p className="text-xs uppercase opacity-50 font-bold">Total</p>
+                      <p className="text-xs uppercase opacity-50 font-bold">Total a Pagar</p>
                       <p className="text-2xl font-black text-primary">${formTotal.toLocaleString()} MXN</p>
                     </div>
                   </div>
@@ -436,46 +429,52 @@ export default function PagosPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2 pt-4 border-t">
                   <div className="space-y-2">
-                    <Label>Método</Label>
+                    <Label>Método de Pago</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Efectivo">Efectivo</SelectItem>
                         <SelectItem value="Transferencia">Transferencia</SelectItem>
                         <SelectItem value="Tarjeta">Tarjeta</SelectItem>
+                        <SelectItem value="Depósito">Depósito Bancario</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Fecha</Label>
+                    <Label>Fecha de Pago</Label>
                     <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
                   </div>
                 </div>
               </CardContent>
               <CardFooter className="bg-muted/10 border-t pt-6">
-                <Button className="w-full gap-2" disabled={isProcessing || !selectedStudent} onClick={handleProcessPayment}>
+                <Button className="w-full gap-2" disabled={isProcessing || !activeStudent} onClick={handleProcessPayment}>
                   {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                  Registrar Pago
+                  Finalizar Registro de Pago
                 </Button>
               </CardFooter>
             </Card>
 
-            {/* Sidebar: Resumen Estudiantil */}
+            {/* Sidebar: Resumen Estudiantil con DATA REAL */}
             <div className="space-y-6">
-              {selectedStudent ? (
+              {activeStudent ? (
                 <>
-                  <Card className="border-none shadow-lg overflow-hidden bg-primary text-primary-foreground">
+                  <Card className={`border-none shadow-lg overflow-hidden transition-colors ${Number(activeStudent.outstandingBalance || 0) > 0 ? 'bg-rose-600' : 'bg-emerald-600'} text-white`}>
                     <CardHeader className="pb-4">
                       <CardTitle className="font-headline text-2xl">Resumen Estudiantil</CardTitle>
+                      <CardDescription className="text-white/70">Información actualizada al momento.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                       <div className="flex items-center gap-4">
-                        <Avatar className="h-14 w-14 border-2 border-white/20 bg-white/10 text-white">
-                          <AvatarFallback><UserCircle className="h-10 w-10" /></AvatarFallback>
+                        <Avatar className="h-16 w-16 border-2 border-white/20 bg-white/10 text-white">
+                          <AvatarImage src={`https://picsum.photos/seed/${activeStudent.id}/100/100`} />
+                          <AvatarFallback><UserCircle className="h-12 w-12" /></AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-bold text-lg leading-tight">{selectedStudent.firstName} {selectedStudent.lastName}</p>
-                          <p className="text-sm opacity-80">Grado: {selectedStudent.gradeLevel}</p>
+                          <p className="font-bold text-xl leading-tight">{activeStudent.firstName} {activeStudent.lastName}</p>
+                          <p className="text-sm opacity-90">{activeStudent.gradeLevel}</p>
+                          <Badge variant="secondary" className="mt-1 bg-white/20 text-white border-none text-[10px]">
+                            MAT: {activeStudent.studentIdNumber}
+                          </Badge>
                         </div>
                       </div>
                       
@@ -483,33 +482,58 @@ export default function PagosPage() {
                       
                       <div className="space-y-1">
                         <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO TOTAL PENDIENTE</p>
-                        <p className="text-4xl font-black tracking-tight">${Number(selectedStudent.outstandingBalance || 0).toLocaleString()} MXN</p>
+                        <p className="text-4xl font-black tracking-tight">
+                          ${Number(activeStudent.outstandingBalance || 0).toLocaleString()} <span className="text-lg font-normal opacity-70">MXN</span>
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-2">
+                        <div className="p-3 bg-white/10 rounded-lg">
+                          <p className="text-[9px] uppercase font-bold opacity-60">Último Pago</p>
+                          <p className="text-sm font-bold">{payments?.[0]?.paymentDate ? new Date(payments[0].paymentDate + 'T12:00:00').toLocaleDateString() : "---"}</p>
+                        </div>
+                        <div className="p-3 bg-white/10 rounded-lg">
+                          <p className="text-[9px] uppercase font-bold opacity-60">Estatus</p>
+                          <p className="text-sm font-bold">{Number(activeStudent.outstandingBalance || 0) > 0 ? 'Con Adeudo' : 'Al Corriente'}</p>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
 
                   <Card className="border-none shadow-md bg-white">
                     <CardHeader className="pb-2">
-                      <CardTitle className="font-headline text-xl text-primary">Próximos Vencimientos</CardTitle>
+                      <CardTitle className="font-headline text-xl text-primary flex items-center gap-2">
+                        <CalendarDays className="h-5 w-5" /> Próximos Vencimientos
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
                         <div className="flex items-center justify-between py-2 border-b">
-                          <span className="text-sm text-muted-foreground">Ene 20 - Mensualidad</span>
-                          <Badge variant="destructive" className="rounded-full px-4 h-6 uppercase text-[9px]">Hoy</Badge>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold">Colegiatura {MONTHS[new Date().getMonth()]}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">Ciclo Escolar 2024</span>
+                          </div>
+                          {Number(activeStudent.outstandingBalance || 0) > 0 ? (
+                            <Badge variant="destructive" className="rounded-full px-4 h-6 uppercase text-[9px]">Pendiente</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-emerald-600 border-emerald-200 rounded-full px-4 h-6 uppercase text-[9px]">Cubierto</Badge>
+                          )}
                         </div>
-                        <div className="flex items-center justify-between py-2 border-b">
-                          <span className="text-sm text-muted-foreground">Feb 01 - Materiales</span>
-                          <span className="text-xs font-bold text-slate-600">Faltan 11 días</span>
+                        <div className="flex items-center justify-between py-2">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold">Colegiatura {MONTHS[(new Date().getMonth() + 1) % 12]}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">Fecha límite: Día 10</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">Programado</span>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                 </>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-xl bg-muted/10 opacity-40">
-                  <User className="h-12 w-12 mb-4" />
-                  <p className="text-center text-sm font-medium">Busca un estudiante para ver su resumen financiero.</p>
+                <div className="h-full flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-xl bg-muted/10 opacity-40 text-center">
+                  <UserCircle className="h-16 w-16 mb-4" />
+                  <p className="text-sm font-medium">Busca un estudiante para ver su resumen financiero y estatus real de cuenta.</p>
                 </div>
               )}
             </div>
@@ -518,36 +542,63 @@ export default function PagosPage() {
 
         <TabsContent value="historial">
           <Card className="border-none shadow-md overflow-hidden">
-            <CardHeader><CardTitle className="font-headline">Historial de Transacciones</CardTitle></CardHeader>
-            <CardContent>
+            <CardHeader className="bg-muted/10 border-b">
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle className="font-headline">Historial de Transacciones</CardTitle>
+                  <CardDescription>
+                    {activeStudent ? `Mostrando pagos de: ${activeStudent.firstName} ${activeStudent.lastName}` : "Busca un alumno para ver su historial."}
+                  </CardDescription>
+                </div>
+                {activeStudent && (
+                  <Badge variant="outline" className="bg-white">
+                    ID: {activeStudent.studentIdNumber}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
               <div className="rounded-md border bg-white">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="bg-muted/30">
                     <TableRow>
                       <TableHead>Fecha</TableHead>
-                      <TableHead>Alumno</TableHead>
-                      <TableHead>Mes</TableHead>
-                      <TableHead>Monto</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
+                      <TableHead>Conceptos / Mes</TableHead>
+                      <TableHead>Método</TableHead>
+                      <TableHead>Monto Total</TableHead>
+                      <TableHead className="text-right">Recibo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoadingPayments ? (
-                      <TableRow><TableCell colSpan={5} className="text-center py-10"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
                     ) : payments?.length ? payments.map(p => (
-                      <TableRow key={p.id}>
-                        <TableCell>{new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}</TableCell>
-                        <TableCell className="font-bold">{p.studentName}</TableCell>
-                        <TableCell>
-                          {p.items?.map((item: any) => item.month).filter(Boolean).join(", ") || "N/A"}
+                      <TableRow key={p.id} className="hover:bg-muted/5 transition-colors">
+                        <TableCell className="font-medium">
+                          {new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}
                         </TableCell>
-                        <TableCell className="font-black text-primary">${(p.totalAmount || 0).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {p.items?.map((item: any, idx: number) => (
+                              <div key={idx} className="text-xs flex items-center gap-2">
+                                <span className="font-bold">{item.name}</span>
+                                {item.month && <Badge variant="secondary" className="h-4 text-[9px] uppercase">{item.month}</Badge>}
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-slate-50">{p.paymentMethod}</Badge>
+                        </TableCell>
+                        <TableCell className="font-black text-primary text-lg">
+                          ${(p.totalAmount || 0).toLocaleString()}
+                        </TableCell>
                         <TableCell className="text-right flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)}>
+                          <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)} title="Descargar Recibo PDF">
                             {isGeneratingPDF === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                           </Button>
                           {!isStudent && (
-                            <Button variant="ghost" size="icon" className="text-emerald-600" onClick={() => handleWhatsAppNotify(p)}>
+                            <Button variant="ghost" size="icon" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => handleWhatsAppNotify(p)} title="Enviar por WhatsApp">
                               {isSendingWA === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                             </Button>
                           )}
@@ -555,8 +606,15 @@ export default function PagosPage() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                          {selectedStudent || isStudent ? "No se encontraron transacciones." : "Busca un alumno para ver su historial."}
+                        <TableCell colSpan={5} className="text-center py-20 text-muted-foreground">
+                          {activeStudent ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <History className="h-10 w-10 opacity-20" />
+                              <p>Este estudiante no tiene transacciones registradas.</p>
+                            </div>
+                          ) : (
+                            "Por favor selecciona un alumno arriba para ver su historial financiero."
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
