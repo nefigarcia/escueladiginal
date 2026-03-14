@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -27,7 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc } from "@/firebase"
-import { collection, doc, serverTimestamp, getDoc, query, where, getDocs, limit } from "firebase/firestore"
+import { collection, doc, serverTimestamp, getDoc, query, where, getDocs, limit, orderBy } from "firebase/firestore"
 import { numberToWords } from "@/lib/number-to-words"
 import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
 import { 
@@ -113,6 +112,7 @@ export default function PagosPage() {
   ])
 
   const [currentUserStudentDoc, setCurrentUserStudentDoc] = React.useState<any | null>(null)
+
   React.useEffect(() => {
     async function findStudent() {
       if (isStudent && profile?.studentIdNumber && firestore && profile?.schoolId) {
@@ -131,19 +131,22 @@ export default function PagosPage() {
     findStudent()
   }, [isStudent, profile, firestore])
 
-  const editTotalAmount = editItems.reduce((sum, item) => sum + item.amount, 0)
-
   const paymentsQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null;
     
+    let studentId = null;
     if (isStudent && currentUserStudentDoc) {
-       return collection(firestore, "students", currentUserStudentDoc.id, "payments");
+       studentId = currentUserStudentDoc.id;
+    } else if (!isStudent && selectedStudent) {
+      studentId = selectedStudent.id;
     }
+
+    if (!studentId) return null;
     
-    if (!isStudent && selectedStudent) {
-      return collection(firestore, "students", selectedStudent.id, "payments");
-    }
-    return null;
+    return query(
+      collection(firestore, "students", studentId, "payments"),
+      orderBy("createdAt", "desc")
+    );
   }, [firestore, selectedStudent, isStudent, profile, currentUserStudentDoc])
   
   const { data: payments } = useCollection(paymentsQuery)
@@ -155,9 +158,11 @@ export default function PagosPage() {
       setReceivedFrom(student.guardianName || "")
       toast({ title: "Alumno encontrado" })
     } else {
-      toast({ variant: "destructive", title: "No encontrado", description: "Verifica la matrícula." })
+      toast({ variant: "destructive", title: "No encontrado" })
     }
   }
+
+  const editTotalAmount = editItems.reduce((sum, item) => sum + item.amount, 0)
 
   const addItem = (type: 'fee' | 'custom', isEdit: boolean = false) => {
     const newItem: PaymentItem = { 
@@ -193,9 +198,6 @@ export default function PagosPage() {
           if (fee) {
             updated.name = fee.name
             updated.amount = fee.baseAmount || 0
-            if (!fee.name.toLowerCase().includes('colegiatura')) {
-              updated.month = undefined
-            }
           }
         }
         return updated
@@ -253,19 +255,16 @@ export default function PagosPage() {
 
   const handleUpdatePayment = () => {
     if (!firestore || !editingPayment) return
-
     const paymentDocRef = doc(firestore, "students", editingPayment.studentId, "payments", editingPayment.id)
-    
     updateDocumentNonBlocking(paymentDocRef, {
       ...editingPayment,
       items: editItems,
       totalAmount: editTotalAmount,
       updatedAt: serverTimestamp(),
     })
-
     setIsEditDialogOpen(false)
     setEditingPayment(null)
-    toast({ title: "Pago Actualizado", description: "Los cambios han sido guardados." })
+    toast({ title: "Pago Actualizado" })
   }
 
   const handleWhatsAppNotify = async (payment: any) => {
@@ -273,12 +272,10 @@ export default function PagosPage() {
     try {
       const studentSnap = await getDoc(doc(firestore!, "students", payment.studentId))
       const student = studentSnap.data()
-      
       if (!student?.phone) {
-        toast({ variant: "destructive", title: "Sin teléfono", description: "El alumno no tiene un número registrado." })
+        toast({ variant: "destructive", title: "Sin teléfono" })
         return
       }
-
       const draft = await smartParentCommunicationsDrafting({
         templateName: "avisoGeneral",
         contextData: {
@@ -286,7 +283,6 @@ export default function PagosPage() {
           additionalDetails: `Confirmamos el recibo de su pago por ${payment.totalAmount} MXN. Gracias.`
         }
       })
-
       const text = encodeURIComponent(draft.draftMessage)
       window.open(`https://wa.me/52${student.phone}?text=${text}`, '_blank')
     } catch (e) {
@@ -331,10 +327,9 @@ export default function PagosPage() {
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm]">
           {pdfData && (
             <div className="relative">
-              <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-35deg] text-rose-500/15 text-[150px] font-bold border-[10px] border-rose-500/15 px-12 py-6 rounded-3xl select-none pointer-events-none uppercase z-0">
+              <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-35deg] text-rose-500/15 text-[150px] font-bold border-[10px] border-rose-500/15 px-12 py-6 rounded-3xl uppercase z-0">
                 PAGADO
               </div>
-
               <div className="flex justify-between items-start mb-2">
                 <div className="w-1/3">
                   {pdfData.school.logoUrl && (
@@ -342,19 +337,14 @@ export default function PagosPage() {
                   )}
                 </div>
                 <div className="w-2/3 text-right">
-                  <h1 className="text-[36pt] font-bold leading-none mb-4" style={{ fontFamily: "'Playfair Display', serif" }}>
-                    {pdfData.school.name}
-                  </h1>
+                  <h1 className="text-[36pt] font-bold leading-none mb-4">{pdfData.school.name}</h1>
                 </div>
               </div>
-              
               <div className="text-right mb-4">
                 <p className="font-bold text-lg">CCT: {pdfData.school.cct}</p>
                 <p className="text-sm italic">{pdfData.school.address}</p>
               </div>
-
               <div className="h-1 bg-black w-full mb-6" />
-
               <div className="flex justify-between items-end mb-6">
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-widest">Recibo de Pago</h2>
@@ -365,7 +355,6 @@ export default function PagosPage() {
                   <p className="text-sm">{pdfData.dateFormatted}</p>
                 </div>
               </div>
-
               <div className="space-y-4 mb-8">
                 <div className="border-b border-black/10 py-3 flex items-baseline">
                   <span className="text-sm font-bold uppercase w-32 shrink-0">Recibí de:</span>
@@ -375,71 +364,25 @@ export default function PagosPage() {
                   <span className="text-sm font-bold uppercase w-32 shrink-0">Alumno:</span>
                   <span className="text-base italic ml-4">{pdfData.payment.studentName}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-8 border-b border-black/10 py-3">
-                  <div className="flex items-baseline">
-                    <span className="text-sm font-bold uppercase w-32 shrink-0">Matrícula:</span>
-                    <span className="text-base italic ml-4">{pdfData.student?.studentIdNumber}</span>
-                  </div>
-                  <div className="flex items-baseline">
-                    <span className="text-sm font-bold uppercase w-20 shrink-0">Grado:</span>
-                    <span className="text-base italic ml-4">{pdfData.student?.gradeLevel}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-8 border-b border-black/10 py-3">
-                  <div className="flex items-baseline">
-                    <span className="text-sm font-bold uppercase w-32 shrink-0">Teléfono:</span>
-                    <span className="text-base italic ml-4">{pdfData.student?.phone || "N/A"}</span>
-                  </div>
-                  <div className="flex items-baseline">
-                    <span className="text-sm font-bold uppercase w-20 shrink-0">Método:</span>
-                    <span className="text-base italic ml-4">{pdfData.payment.paymentMethod}</span>
-                  </div>
-                </div>
-                <div className="border-b border-black/10 py-3 flex items-baseline">
-                  <span className="text-sm font-bold uppercase w-32 shrink-0">Domicilio:</span>
-                  <span className="text-sm italic ml-4">{pdfData.student?.address || "N/A"}</span>
-                </div>
-                
                 <div className="border-b border-black/10 py-4 flex flex-col">
                   <span className="text-sm font-bold uppercase mb-2">Desglose de Conceptos:</span>
                   <div className="space-y-1 ml-4 pr-4">
                     {(pdfData.payment.items || []).map((item: any, idx: number) => (
                       <div key={idx} className="flex justify-between items-baseline italic border-b border-dashed border-black/5 pb-1">
-                        <span className="text-base">
-                          {item.name} {item.month ? `(${item.month})` : ''}
-                        </span>
+                        <span className="text-base">{item.name} {item.month ? `(${item.month})` : ''}</span>
                         <span className="text-base font-bold">${(item.amount || 0).toLocaleString()}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
-
               <div className="bg-slate-50 p-8 rounded-xl border border-black/5 mb-12">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-xl font-bold uppercase">Total Pagado:</span>
                   <span className="text-3xl font-black">${(pdfData.payment.totalAmount || 0).toLocaleString()} MXN</span>
                 </div>
                 <div className="text-center pt-4 border-t border-black/10 mb-4">
-                  <p className="text-sm font-bold uppercase tracking-widest text-slate-700">
-                    {pdfData.montoEnLetra}
-                  </p>
-                </div>
-                <div className="flex justify-between items-center pt-2 text-rose-700 font-bold border-t border-rose-100">
-                  <span className="text-xs uppercase">Saldo Pendiente Después de este Pago:</span>
-                  <span className="text-lg">${(pdfData.student?.outstandingBalance || 0).toLocaleString()} MXN</span>
-                </div>
-              </div>
-
-              <div className="mt-32 flex flex-col items-center">
-                <div className="w-[300px] border-t-2 border-black relative">
-                  {pdfData.school.adminSignatureUrl && (
-                    <img src={pdfData.school.adminSignatureUrl} className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 h-16 object-contain" alt="Signature" />
-                  )}
-                  <div className="text-center mt-2">
-                    <p className="font-bold text-sm uppercase tracking-tight">Firma de Área Administrativa</p>
-                    <p className="text-[10px] text-muted-foreground uppercase mt-1">Sello y Firma Digital</p>
-                  </div>
+                  <p className="text-sm font-bold uppercase tracking-widest">{pdfData.montoEnLetra}</p>
                 </div>
               </div>
             </div>
@@ -481,33 +424,12 @@ export default function PagosPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="sm:col-span-2 space-y-2">
-                    <Label>Recibí de (Nombre del Tutor/Padre)</Label>
-                    <Input value={receivedFrom} onChange={(e) => setReceivedFrom(e.target.value)} placeholder="Nombre de quien entrega el pago..." />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cantidad ($)</Label>
-                    <Input 
-                      type="number" 
-                      value={formTotal || ""} 
-                      onChange={(e) => setFormTotal(parseFloat(e.target.value) || 0)} 
-                      placeholder="0.00" 
-                      className="font-bold text-lg border-primary/30"
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b pb-2">
-                    <Label className="text-lg font-bold">Desglose de Conceptos</Label>
+                    <Label className="text-lg font-bold">Conceptos de Pago</Label>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1">
-                        <Plus className="h-4 w-4" /> Concepto
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => addItem('custom')} className="gap-1">
-                        <Plus className="h-4 w-4" /> Otro
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1"><Plus className="h-4 w-4" /> Tarifa</Button>
+                      <Button variant="outline" size="sm" onClick={() => addItem('custom')} className="gap-1"><Plus className="h-4 w-4" /> Otro</Button>
                     </div>
                   </div>
 
@@ -515,56 +437,22 @@ export default function PagosPage() {
                     {items.map((item, index) => (
                       <div key={item.id} className="grid grid-cols-12 gap-3 items-start bg-muted/20 p-3 rounded-lg border">
                         <div className="col-span-7 space-y-2">
-                          <Label className="text-xs uppercase opacity-50">Concepto {index + 1}</Label>
                           {item.type === 'fee' ? (
-                            <>
-                              <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
-                                <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
-                                <SelectContent>
-                                  {fees?.length ? fees.map(f => (
-                                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                                  )) : (
-                                    <SelectItem value="none" disabled>No hay tarifas configuradas</SelectItem>
-                                  )}
-                                </SelectContent>
-                              </Select>
-                              {item.name.toLowerCase().includes('colegiatura') && (
-                                <div className="mt-2 flex items-center gap-2">
-                                  <Label className="text-[10px] uppercase font-bold shrink-0">Mes:</Label>
-                                  <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v })}>
-                                    <SelectTrigger className="h-8 text-xs">
-                                      <SelectValue placeholder="Seleccionar mes..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
-                            </>
+                            <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
+                              <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
+                              <SelectContent>
+                                {fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           ) : (
-                            <Input placeholder="Nombre del concepto..." value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
+                            <Input placeholder="Concepto personalizado" value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
                           )}
                         </div>
                         <div className="col-span-4 space-y-2">
-                          <Label className="text-xs uppercase opacity-50">Monto</Label>
-                          <Input 
-                            type="number" 
-                            value={item.amount || ""} 
-                            placeholder="0.00"
-                            onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} 
-                          />
+                          <Input type="number" value={item.amount || ""} onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} placeholder="0.00" />
                         </div>
-                        <div className="col-span-1 pt-6">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="text-destructive hover:bg-destructive/10" 
-                            onClick={() => removeItem(item.id)}
-                            disabled={items.length === 1}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                        <div className="col-span-1 pt-2">
+                          <Button variant="ghost" size="icon" onClick={() => removeItem(item.id)} disabled={items.length === 1}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
                     ))}
@@ -572,38 +460,33 @@ export default function PagosPage() {
 
                   <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
                     <div className="text-right">
-                      <p className="text-xs uppercase opacity-50 font-bold">Total a Cobrar</p>
-                      <p className="text-2xl font-black text-primary">${formTotal.toLocaleString()} MXN</p>
+                      <p className="text-xs uppercase opacity-50 font-bold">Total</p>
+                      <p className="text-2xl font-black text-primary">${items.reduce((sum, it) => sum + (it.amount || 0), 0).toLocaleString()} MXN</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 pt-4 border-t">
                   <div className="space-y-2">
-                    <Label>Método de Pago</Label>
+                    <Label>Método</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Efectivo">Efectivo</SelectItem>
                         <SelectItem value="Transferencia">Transferencia</SelectItem>
-                        <SelectItem value="Tarjeta de Crédito/Débito">Tarjeta</SelectItem>
-                        <SelectItem value="Depósito Bancario">Depósito</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Fecha del Pago</Label>
-                    <div className="relative">
-                      <CalendarIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="pl-9" />
-                    </div>
+                    <Label>Fecha</Label>
+                    <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
                   </div>
                 </div>
               </CardContent>
               <CardFooter className="bg-muted/10 border-t pt-6">
-                <Button className="w-full gap-2 h-12 text-lg font-bold" disabled={isProcessing || !selectedStudent || formTotal <= 0} onClick={handleProcessPayment}>
+                <Button className="w-full gap-2" disabled={isProcessing || !selectedStudent} onClick={handleProcessPayment}>
                   {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                  Confirmar y Registrar Pago (${formTotal.toLocaleString()})
+                  Registrar Pago
                 </Button>
               </CardFooter>
            </Card>
@@ -611,7 +494,7 @@ export default function PagosPage() {
 
         <TabsContent value="historial">
           <Card className="border-none shadow-md overflow-hidden">
-            <CardHeader><CardTitle className="font-headline">Transacciones</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="font-headline">Historial de Transacciones</CardTitle></CardHeader>
             <CardContent>
               <div className="rounded-md border bg-white">
                 <Table>
@@ -619,9 +502,7 @@ export default function PagosPage() {
                     <TableRow>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Alumno</TableHead>
-                      <TableHead>Detalles</TableHead>
-                      <TableHead>Método</TableHead>
-                      <TableHead>Monto Total</TableHead>
+                      <TableHead>Monto</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -630,24 +511,13 @@ export default function PagosPage() {
                       <TableRow key={p.id}>
                         <TableCell>{new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}</TableCell>
                         <TableCell className="font-bold">{p.studentName}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            {(p.items || []).map((it: any, idx: number) => (
-                              <span key={idx} className="text-[10px] text-muted-foreground">• {it.name} {it.month ? `(${it.month})` : ''} - ${it.amount.toLocaleString()}</span>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant="outline" className="text-[10px]">{p.paymentMethod}</Badge></TableCell>
                         <TableCell className="font-black text-primary">${(p.totalAmount || 0).toLocaleString()}</TableCell>
                         <TableCell className="text-right flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(p)} title="Editar Pago">
-                            <Edit2 className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                          <Button variant="ghost" size="icon" disabled={isGeneratingPDF === p.id} onClick={() => handleDownloadPDF(p)} title="Descargar Recibo">
-                            {isGeneratingPDF === p.id ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <FileText className="h-4 w-4 text-destructive" />}
+                          <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)}>
+                            {isGeneratingPDF === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                           </Button>
                           {!isStudent && (
-                            <Button variant="ghost" size="icon" disabled={isSendingWA === p.id} className="text-emerald-600" onClick={() => handleWhatsAppNotify(p)} title="Enviar WhatsApp">
+                            <Button variant="ghost" size="icon" className="text-emerald-600" onClick={() => handleWhatsAppNotify(p)}>
                               {isSendingWA === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                             </Button>
                           )}
@@ -655,8 +525,8 @@ export default function PagosPage() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
-                          {selectedStudent || currentUserStudentDoc ? "No se encontraron pagos registrados." : "Busca un alumno por matrícula para ver su historial."}
+                        <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                          No se encontraron transacciones.
                         </TableCell>
                       </TableRow>
                     )}
@@ -667,124 +537,6 @@ export default function PagosPage() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Editar Transacción</DialogTitle>
-            <DialogDescription>Modifica los detalles del pago registrado.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Alumno</Label>
-                <Input value={editingPayment?.studentName || ""} disabled className="bg-muted/50" />
-              </div>
-              <div className="space-y-2">
-                <Label>Recibí de</Label>
-                <Input value={editingPayment?.receivedFrom || ""} onChange={(e) => setEditingPayment({...editingPayment, receivedFrom: e.target.value})} />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-2">
-                <Label className="text-lg font-bold">Desglose de Conceptos</Label>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => addItem('fee', true)} className="gap-1">
-                    <Plus className="h-4 w-4" /> Concepto
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => addItem('custom', true)} className="gap-1">
-                    <Plus className="h-4 w-4" /> Otro
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {editItems.map((item, index) => (
-                  <div key={item.id} className="grid grid-cols-12 gap-3 items-start bg-muted/20 p-3 rounded-lg border">
-                    <div className="col-span-7 space-y-2">
-                      <Label className="text-xs uppercase opacity-50">Concepto {index + 1}</Label>
-                      {item.type === 'fee' ? (
-                        <>
-                          <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v }, true)}>
-                            <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
-                            <SelectContent>{fees?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                          {item.name.toLowerCase().includes('colegiatura') && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <Label className="text-[10px] uppercase font-bold shrink-0">Mes:</Label>
-                              <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v }, true)}>
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="Seleccionar mes..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <Input placeholder="Nombre del concepto..." value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value }, true)} />
-                      )}
-                    </div>
-                    <div className="col-span-4 space-y-2">
-                      <Label className="text-xs uppercase opacity-50">Monto</Label>
-                      <Input 
-                        type="number" 
-                        value={item.amount || ""} 
-                        placeholder="0.00"
-                        onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 }, true)} 
-                      />
-                    </div>
-                    <div className="col-span-1 pt-6">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="text-destructive hover:bg-destructive/10" 
-                        onClick={() => removeItem(item.id, true)}
-                        disabled={editItems.length === 1}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end p-4 bg-primary/5 rounded-lg border border-primary/10">
-                <div className="text-right">
-                  <p className="text-xs uppercase opacity-50 font-bold">Nuevo Total</p>
-                  <p className="text-2xl font-black text-primary">${editTotalAmount.toLocaleString()} MXN</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 pt-4 border-t">
-              <div className="space-y-2">
-                <Label>Método de Pago</Label>
-                <Select value={editingPayment?.paymentMethod} onValueChange={(v) => setEditingPayment({...editingPayment, paymentMethod: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Efectivo">Efectivo</SelectItem>
-                    <SelectItem value="Transferencia">Transferencia</SelectItem>
-                    <SelectItem value="Tarjeta de Crédito/Débito">Tarjeta</SelectItem>
-                    <SelectItem value="Depósito Bancario">Depósito</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Fecha del Pago</Label>
-                <Input type="date" value={editingPayment?.paymentDate || ""} onChange={(e) => setEditingPayment({...editingPayment, paymentDate: e.target.value})} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleUpdatePayment}>Guardar Cambios</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

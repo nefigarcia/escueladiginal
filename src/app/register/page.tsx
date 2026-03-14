@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -8,8 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2, AlertCircle } from "lucide-react"
-import { useAuth, useFirestore, setDocumentNonBlocking, initiateAnonymousSignIn, useUser } from "@/firebase"
-import { doc, collection, query, where, getDocs, limit } from "firebase/firestore"
+import { useAuth, useFirestore, setDocumentNonBlocking, useUser } from "@/firebase"
+import { doc, collection, query, where, getDocs, limit, serverTimestamp } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { createUserWithEmailAndPassword } from "firebase/auth"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -19,7 +18,6 @@ type Role = "Administrador" | "Academico" | "Alumno"
 export default function RegisterPage() {
   const { auth } = useAuth()
   const { firestore } = useFirestore()
-  const { user: currentUser } = useUser()
   const router = useRouter()
 
   const [mounted, setMounted] = React.useState(false)
@@ -35,15 +33,12 @@ export default function RegisterPage() {
     lastName: "",
     schoolName: "",
     activationCode: "",
-    studentIdNumber: "" // Importante para alumnos
+    studentIdNumber: ""
   })
 
   React.useEffect(() => {
     setMounted(true)
-    if (auth && !currentUser) {
-      initiateAnonymousSignIn(auth)
-    }
-  }, [auth, currentUser])
+  }, [])
 
   if (!mounted) {
     return (
@@ -84,14 +79,14 @@ export default function RegisterPage() {
         toast({
           variant: "destructive",
           title: "Código inválido",
-          description: "No se encontró ninguna escuela con ese código. Por favor verifica con tu administración.",
+          description: "No se encontró ninguna escuela con ese código.",
         })
       }
     } catch (err: any) {
       toast({
         variant: "destructive",
         title: "Error de verificación",
-        description: "Hubo un problema al validar el código. Reintenta.",
+        description: "Hubo un problema al validar el código.",
       })
     } finally {
       setLoading(false)
@@ -100,8 +95,16 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!auth || !firestore || !selectedRole) return
+
+    if (formData.password.length < 6) {
+      toast({
+        variant: "destructive",
+        title: "Contraseña corta",
+        description: "La contraseña debe tener al menos 6 caracteres.",
+      })
+      return
+    }
 
     setLoading(true)
     
@@ -119,7 +122,7 @@ export default function RegisterPage() {
           name: formData.schoolName || "Nueva Escuela",
           activationCode: schoolActivationCode,
           directorId: user.uid,
-          createdAt: new Date().toISOString()
+          createdAt: serverTimestamp()
         }, { merge: true })
       }
 
@@ -132,14 +135,12 @@ export default function RegisterPage() {
         email: user.email,
         uid: user.uid,
         studentIdNumber: selectedRole === "Alumno" ? formData.studentIdNumber : null,
-        createdAt: new Date().toISOString()
+        createdAt: serverTimestamp()
       }, { merge: true })
 
       toast({
         title: "¡Configuración completada!",
-        description: selectedRole === "Administrador" 
-          ? `Bienvenido. Tu código de activación es: ${schoolActivationCode}`
-          : "Te has unido exitosamente a la escuela.",
+        description: "Bienvenido al sistema.",
       })
       
       router.push("/dashboard")
@@ -149,7 +150,7 @@ export default function RegisterPage() {
       toast({
         variant: "destructive",
         title: "Error de Registro",
-        description: err.message || "No se pudo crear la cuenta. Revisa tus datos.",
+        description: err.message || "No se pudo crear la cuenta.",
       })
     }
   }
@@ -165,7 +166,7 @@ export default function RegisterPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Servicios No Disponibles</AlertTitle>
             <AlertDescription>
-              Firebase no se ha inicializado correctamente. Revisa tus variables .env y reinicia el servidor.
+              Configuración de Firebase inválida.
             </AlertDescription>
           </Alert>
         )}
@@ -246,7 +247,7 @@ export default function RegisterPage() {
                 {selectedRole === "Administrador" && (
                   <div className="space-y-2">
                     <Label>Nombre de la Escuela</Label>
-                    <Input required placeholder="Ej. Instituto Mexicano de Ciencias" value={formData.schoolName} onChange={(e) => setFormData({...formData, schoolName: e.target.value})} />
+                    <Input required placeholder="Ej. Instituto Mexicano" value={formData.schoolName} onChange={(e) => setFormData({...formData, schoolName: e.target.value})} />
                   </div>
                 )}
                 {selectedRole === "Alumno" && (
