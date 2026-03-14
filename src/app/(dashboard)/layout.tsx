@@ -1,11 +1,10 @@
-
 "use client"
 
 import * as React from "react"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { DashboardNav } from "@/components/dashboard-nav"
 import { Toaster } from "@/components/ui/toaster"
-import { useUser, useDoc, useFirestore } from "@/firebase"
+import { useUser, useDoc, useFirestore, useMemoFirebase } from "@/firebase"
 import { doc } from "firebase/firestore"
 import { Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -24,15 +23,16 @@ export default function DashboardLayout({
     setMounted(true)
   }, [])
 
-  // Fetch User Role Profile & School Info
-  const userProfileRef = React.useMemo(() => {
+  // Fetch User Role Profile
+  const userProfileRef = useMemoFirebase(() => {
     if (!firestore || !user) return null
     return doc(firestore, "staff_roles", user.uid)
   }, [firestore, user])
 
   const { data: profile, isLoading: isProfileLoading } = useDoc(userProfileRef)
 
-  const schoolRef = React.useMemo(() => {
+  // Fetch School Info
+  const schoolRef = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
     return doc(firestore, "schools", profile.schoolId)
   }, [firestore, profile])
@@ -46,7 +46,10 @@ export default function DashboardLayout({
   }, [user, isUserLoading, router, mounted])
 
   // Gate the entire dashboard until we have a user and their profile
-  if (!mounted || isUserLoading || (user && isProfileLoading)) {
+  // Allow rendering if user exists but profile is missing (to avoid infinite loading on fresh accounts)
+  const shouldShowLoader = !mounted || isUserLoading || (user && isProfileLoading && !profile);
+
+  if (shouldShowLoader) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -54,7 +57,7 @@ export default function DashboardLayout({
     )
   }
 
-  // If after loading we still have no user, the useEffect will handle the redirect
+  // If no user after loading, the effect handles redirect
   if (!user) return null
 
   return (

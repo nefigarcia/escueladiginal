@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -103,12 +102,11 @@ export default function PsicologiaPage() {
 
   const handleViewFullReport = (report: any) => {
     setDraft(report.content)
-    setFormData({
-      ...formData,
+    setFormData(prev => ({
+      ...prev,
       studentId: report.studentId
-    })
+    }))
     setActiveTab("nuevo")
-    toast({ title: "Reporte cargado en el editor" })
   }
 
   return (
@@ -168,9 +166,6 @@ export default function PsicologiaPage() {
                   value={formData.observations}
                   onChange={(e) => setFormData({...formData, observations: e.target.value})}
                 />
-                <p className="text-[10px] text-muted-foreground italic">
-                  La IA estructurará estas notas en un reporte formal con recomendaciones.
-                </p>
               </div>
             </CardContent>
             <CardFooter>
@@ -184,7 +179,6 @@ export default function PsicologiaPage() {
           <Card className="lg:col-span-3 border-none shadow-md flex flex-col">
             <CardHeader className="bg-muted/10 border-b">
               <CardTitle className="font-headline text-lg">Reporte Generado</CardTitle>
-              <CardDescription>Revisa y edita el borrador antes de guardar.</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 pt-6">
               {draft ? (

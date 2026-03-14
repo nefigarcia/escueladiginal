@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { GraduationCap, ShieldCheck, Users, UserCircle, ArrowLeft, Loader2, AlertCircle } from "lucide-react"
-import { useAuth, useFirestore, useUser } from "@/firebase"
+import { useAuth, useFirestore } from "@/firebase"
 import { doc, collection, query, where, getDocs, limit, serverTimestamp, setDoc } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { createUserWithEmailAndPassword } from "firebase/auth"
@@ -109,13 +109,14 @@ export default function RegisterPage() {
     setLoading(true)
     
     try {
+      // 1. Create User
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password)
       const user = userCredential.user
 
       const finalSchoolId = schoolInfo?.id || "school-" + Math.random().toString(36).substring(7)
       const schoolActivationCode = Math.random().toString(36).substring(7).toUpperCase()
 
-      // Critical: Await document creation to ensure session is ready on redirect
+      // 2. Create School if Administrator
       if (selectedRole === "Administrador") {
         const schoolRef = doc(firestore, "schools", finalSchoolId)
         await setDoc(schoolRef, {
@@ -127,6 +128,7 @@ export default function RegisterPage() {
         }, { merge: true })
       }
 
+      // 3. Create Profile
       const profileRef = doc(firestore, "staff_roles", user.uid)
       await setDoc(profileRef, {
         role: selectedRole,
@@ -144,15 +146,17 @@ export default function RegisterPage() {
         description: "Bienvenido al sistema.",
       })
       
+      // Navigate only after all writes are done
       router.push("/dashboard")
 
     } catch (err: any) {
-      setLoading(false)
       toast({
         variant: "destructive",
         title: "Error de Registro",
         description: err.message || "No se pudo crear la cuenta.",
       })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -167,7 +171,7 @@ export default function RegisterPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Servicios No Disponibles</AlertTitle>
             <AlertDescription>
-              Configuración de Firebase inválida.
+              Configuración de Firebase inválida. Verifica tu entorno.
             </AlertDescription>
           </Alert>
         )}

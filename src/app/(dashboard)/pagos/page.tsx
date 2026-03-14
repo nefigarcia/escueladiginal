@@ -16,10 +16,8 @@ import {
   FileText,
   Loader2,
   MessageCircle,
-  Calendar as CalendarIcon,
   Plus,
-  Trash2,
-  Edit2
+  Trash2
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -29,15 +27,6 @@ import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, u
 import { collection, doc, serverTimestamp, getDoc, query, where, getDocs, limit, orderBy } from "firebase/firestore"
 import { numberToWords } from "@/lib/number-to-words"
 import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
-} from "@/components/ui/dialog"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 
@@ -133,7 +122,6 @@ export default function PagosPage() {
 
     if (!studentId) return null;
     
-    // Using a simpler query to ensure visibility of all transactions
     return query(
       collection(firestore, "students", studentId, "payments"),
       orderBy("paymentDate", "desc")
@@ -219,7 +207,6 @@ export default function PagosPage() {
       toast({ title: "Pago Procesado" })
       setSelectedStudent(null)
       setSelectedStudentId("")
-      setReceivedFrom("")
       setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }])
     } finally {
       setIsProcessing(false)
@@ -288,9 +275,6 @@ export default function PagosPage() {
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm]">
           {pdfData && (
             <div className="relative">
-              <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-[-35deg] text-rose-500/15 text-[150px] font-bold border-[10px] border-rose-500/15 px-12 py-6 rounded-3xl uppercase z-0">
-                PAGADO
-              </div>
               <div className="flex justify-between items-start mb-2">
                 <div className="w-1/3">
                   {pdfData.school.logoUrl && (
