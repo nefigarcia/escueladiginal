@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -41,6 +42,11 @@ interface PaymentItem {
   amount: number;
   month?: string;
 }
+
+const MONTHS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
 
 export default function PagosPage() {
   const { firestore } = useFirestore()
@@ -90,7 +96,7 @@ export default function PagosPage() {
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const [items, setItems] = React.useState<PaymentItem[]>([
-    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }
+    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }
   ])
 
   const [currentUserStudentDoc, setCurrentUserStudentDoc] = React.useState<any | null>(null)
@@ -149,7 +155,8 @@ export default function PagosPage() {
       id: Math.random().toString(36).substr(2, 9), 
       type, 
       name: '', 
-      amount: 0 
+      amount: 0,
+      month: MONTHS[new Date().getMonth()]
     };
     setItems([...items, newItem])
   }
@@ -210,7 +217,7 @@ export default function PagosPage() {
       toast({ title: "Pago Procesado" })
       setSelectedStudent(null)
       setSelectedStudentId("")
-      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0 }])
+      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }])
     } finally {
       setIsProcessing(false)
     }
@@ -274,6 +281,7 @@ export default function PagosPage() {
 
   return (
     <div className="space-y-6">
+      {/* PDF Hidden Template */}
       <div className="fixed -left-[4000px] top-0">
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm]">
           {pdfData && (
@@ -385,7 +393,8 @@ export default function PagosPage() {
                   <div className="space-y-3">
                     {items.map((item, index) => (
                       <div key={item.id} className="grid grid-cols-12 gap-3 items-start bg-muted/20 p-3 rounded-lg border">
-                        <div className="col-span-7 space-y-2">
+                        <div className="col-span-5 space-y-2">
+                          <Label className="text-[10px] uppercase opacity-50">Concepto</Label>
                           {item.type === 'fee' ? (
                             <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
                               <SelectTrigger><SelectValue placeholder="Seleccionar tarifa..." /></SelectTrigger>
@@ -397,10 +406,20 @@ export default function PagosPage() {
                             <Input placeholder="Concepto personalizado" value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
                           )}
                         </div>
-                        <div className="col-span-4 space-y-2">
+                        <div className="col-span-3 space-y-2">
+                          <Label className="text-[10px] uppercase opacity-50">Mes</Label>
+                          <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v })}>
+                            <SelectTrigger><SelectValue placeholder="Mes..." /></SelectTrigger>
+                            <SelectContent>
+                              {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-3 space-y-2">
+                          <Label className="text-[10px] uppercase opacity-50">Monto</Label>
                           <Input type="number" value={item.amount || ""} onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} placeholder="0.00" />
                         </div>
-                        <div className="col-span-1 pt-2">
+                        <div className="col-span-1 pt-6">
                           <Button variant="ghost" size="icon" onClick={() => removeItem(item.id)} disabled={items.length === 1}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
@@ -507,17 +526,21 @@ export default function PagosPage() {
                     <TableRow>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Alumno</TableHead>
+                      <TableHead>Mes</TableHead>
                       <TableHead>Monto</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoadingPayments ? (
-                      <TableRow><TableCell colSpan={4} className="text-center py-10"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={5} className="text-center py-10"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
                     ) : payments?.length ? payments.map(p => (
                       <TableRow key={p.id}>
                         <TableCell>{new Date(p.paymentDate + 'T12:00:00').toLocaleDateString()}</TableCell>
                         <TableCell className="font-bold">{p.studentName}</TableCell>
+                        <TableCell>
+                          {p.items?.map((item: any) => item.month).filter(Boolean).join(", ") || "N/A"}
+                        </TableCell>
                         <TableCell className="font-black text-primary">${(p.totalAmount || 0).toLocaleString()}</TableCell>
                         <TableCell className="text-right flex justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(p)}>
@@ -532,7 +555,7 @@ export default function PagosPage() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                           {selectedStudent || isStudent ? "No se encontraron transacciones." : "Busca un alumno para ver su historial."}
                         </TableCell>
                       </TableRow>
