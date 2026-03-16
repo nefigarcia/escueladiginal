@@ -16,7 +16,8 @@ import {
   Search,
   BookOpen,
   CheckSquare,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -38,6 +39,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
+// Definición de horario de receso
+const RECESO_START = "10:30"
+const RECESO_END = "11:00"
+
 export default function ClasesPage() {
   const { firestore } = useFirestore()
   const { user } = useUser()
@@ -53,7 +58,6 @@ export default function ClasesPage() {
   }, [firestore, user])
   const { data: profile } = useDoc(profileRef)
 
-  // Fetch staff members to populate Teacher select
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
     return query(
@@ -63,7 +67,6 @@ export default function ClasesPage() {
   }, [firestore, profile])
   const { data: staffList } = useCollection(staffQuery)
   
-  // Filter only staff (Admins and Academicos)
   const teachers = React.useMemo(() => {
     return (staffList || []).filter(s => s.role === "Administrador" || s.role === "Academico")
   }, [staffList])
@@ -103,14 +106,72 @@ export default function ClasesPage() {
     }
   }, [mounted, date])
 
+  const timeToMinutes = (time: string) => {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  };
+
   const handleAddClass = async () => {
     if (!newClass.subject || !newClass.teacher || !profile?.schoolId || !firestore) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Por favor completa los campos de Materia y Docente."
+        description: "Por favor completa los campos obligatorios."
       })
       return
+    }
+
+    const nStart = timeToMinutes(newClass.startTime)
+    const nEnd = timeToMinutes(newClass.endTime)
+
+    if (nEnd <= nStart) {
+      toast({
+        variant: "destructive",
+        title: "Error de Horario",
+        description: "La hora de fin debe ser posterior a la de inicio."
+      })
+      return
+    }
+
+    // Validación de Receso
+    const rStart = timeToMinutes(RECESO_START)
+    const rEnd = timeToMinutes(RECESO_END)
+    
+    const overlaps = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && e1 > s2;
+
+    if (overlaps(nStart, nEnd, rStart, rEnd)) {
+      toast({
+        variant: "destructive",
+        title: "Conflicto con Receso",
+        description: `El horario se traslapa con el receso institucional (${RECESO_START} - ${RECESO_END}).`
+      })
+      return
+    }
+
+    // Validación contra clases existentes
+    const dailySchedules = (schedules || []).filter(s => s.dayOfWeek === newClass.dayOfWeek)
+    for (const existing of dailySchedules) {
+      const exStart = timeToMinutes(existing.startTime)
+      const exEnd = timeToMinutes(existing.endTime)
+
+      if (overlaps(nStart, nEnd, exStart, exEnd)) {
+        if (existing.teacher === newClass.teacher) {
+          toast({
+            variant: "destructive",
+            title: "Docente Ocupado",
+            description: `${existing.teacher} ya tiene una clase (${existing.subject}) en este horario.`
+          })
+          return
+        }
+        if (existing.room === newClass.room) {
+          toast({
+            variant: "destructive",
+            title: "Salón Ocupado",
+            description: `El salón ${existing.room} ya está siendo usado por la clase de ${existing.subject}.`
+          })
+          return
+        }
+      }
     }
 
     addDocumentNonBlocking(collection(firestore, "schedules"), {
@@ -130,7 +191,7 @@ export default function ClasesPage() {
       endTime: "09:30",
       dayOfWeek: "Lunes",
     })
-    toast({ title: "Clase programada" })
+    toast({ title: "Clase programada exitosamente" })
   }
 
   const handleDeleteClass = (id: string) => {
@@ -196,6 +257,9 @@ export default function ClasesPage() {
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>Programar Nueva Sesión</DialogTitle>
+                <DialogDescription>
+                  Se validará automáticamente si hay conflictos de salón o docente.
+                </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
@@ -220,7 +284,6 @@ export default function ClasesPage() {
                       )}
                     </SelectContent>
                   </Select>
-                  <p className="text-[10px] text-muted-foreground italic">Solo aparece el personal registrado en la sección "Personal".</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -244,6 +307,12 @@ export default function ClasesPage() {
                     <Label>Fin</Label>
                     <Input type="time" value={newClass.endTime} onChange={(e) => setNewClass({...newClass, endTime: e.target.value})} />
                   </div>
+                </div>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 italic">
+                    Recuerda que no se pueden programar clases durante el receso institucional de <b>{RECESO_START} a {RECESO_END}</b>.
+                  </p>
                 </div>
               </div>
               <DialogFooter>
