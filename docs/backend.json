@@ -59,6 +59,7 @@
       "description": "Psychological or behavioral observation report for a student.",
       "properties": {
         "id": { "type": "string" },
+        "schoolId": { "type": "string" },
         "studentId": { "type": "string" },
         "studentName": { "type": "string" },
         "authorId": { "type": "string" },
@@ -68,12 +69,13 @@
         "status": { "type": "string", "enum": ["Borrador", "Finalizado"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["studentId", "content", "date"]
+      "required": ["schoolId", "studentId", "content", "date"]
     },
     "Attendance": {
       "title": "Attendance",
       "type": "object",
       "properties": {
+        "schoolId": { "type": "string" },
         "classId": { "type": "string" },
         "date": { "type": "string", "format": "date" },
         "records": {
@@ -86,18 +88,21 @@
             }
           }
         }
-      }
+      },
+      "required": ["schoolId", "date"]
     },
     "Grade": {
       "title": "Grade",
       "type": "object",
       "properties": {
+        "schoolId": { "type": "string" },
         "studentId": { "type": "string" },
         "subject": { "type": "string" },
         "score": { "type": "number" },
         "period": { "type": "string" },
         "teacherId": { "type": "string" }
-      }
+      },
+      "required": ["schoolId", "studentId", "subject", "score"]
     }
   },
   "auth": {

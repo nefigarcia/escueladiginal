@@ -5,8 +5,7 @@ service cloud.firestore {
 
     /**
      * Escuela Digital MX - Security Rules
-     * 
-     * DBAC Model: Authorization is driven by staff roles and school isolation.
+     * Updated to handle list operations more effectively and fix psychology report permissions.
      */
 
     // --- Helper Functions ---
@@ -20,7 +19,8 @@ service cloud.firestore {
     }
 
     function hasRole(role) {
-      return isSignedIn() && exists(/databases/$(database)/documents/staff_roles/$(request.auth.uid)) && getStaffRoleData().role == role;
+      let roleData = getStaffRoleData();
+      return isSignedIn() && exists(/databases/$(database)/documents/staff_roles/$(request.auth.uid)) && roleData.role == role;
     }
 
     function isAdmin() {
@@ -28,7 +28,8 @@ service cloud.firestore {
     }
 
     function isOperationalStaff() {
-      return isAdmin() || hasRole('Academico');
+      let roleData = getStaffRoleData();
+      return isSignedIn() && exists(/databases/$(database)/documents/staff_roles/$(request.auth.uid)) && (roleData.role == 'Administrador' || roleData.role == 'Academico');
     }
 
     function isOwner(userId) {
@@ -36,7 +37,8 @@ service cloud.firestore {
     }
 
     function isSameSchool(resourceData) {
-      return isSignedIn() && exists(/databases/$(database)/documents/staff_roles/$(request.auth.uid)) && resourceData.schoolId == getStaffRoleData().schoolId;
+      let roleData = getStaffRoleData();
+      return isSignedIn() && exists(/databases/$(database)/documents/staff_roles/$(request.auth.uid)) && resourceData.schoolId == roleData.schoolId;
     }
 
     // --- Collection Rules ---
@@ -57,23 +59,18 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      // Admins/Staff can read all in their school. 
-      // Alumnos can only read their own record based on studentIdNumber.
       allow read: if isSignedIn() && (
-        ((isOperationalStaff() || isAdmin()) && isSameSchool(resource.data)) ||
+        (isOperationalStaff() && isSameSchool(resource.data)) ||
         (hasRole('Alumno') && isSameSchool(resource.data) && resource.data.studentIdNumber == getStaffRoleData().studentIdNumber)
       );
       
-      allow create: if isSignedIn() && (isOperationalStaff() || isAdmin()) && request.resource.data.schoolId == getStaffRoleData().schoolId;
-      allow update: if isSignedIn() && (isOperationalStaff() || isAdmin()) && isSameSchool(resource.data);
+      allow create: if isSignedIn() && isOperationalStaff() && request.resource.data.schoolId == getStaffRoleData().schoolId;
+      allow update: if isSignedIn() && isOperationalStaff() && isSameSchool(resource.data);
       allow delete: if isAdmin() && isSameSchool(resource.data);
       
       match /payments/{paymentId} {
-        allow read: if isSignedIn() && (
-          ((isOperationalStaff() || isAdmin()) && isSameSchool(get(/databases/$(database)/documents/students/$(studentId)).data)) ||
-          (hasRole('Alumno') && isSameSchool(get(/databases/$(database)/documents/students/$(studentId)).data) && get(/databases/$(database)/documents/students/$(studentId)).data.studentIdNumber == getStaffRoleData().studentIdNumber)
-        );
-        allow create, update, delete: if isSignedIn() && (isOperationalStaff() || isAdmin()) && isSameSchool(get(/databases/$(database)/documents/students/$(studentId)).data);
+        allow read: if isSignedIn() && isSameSchool(get(/databases/$(database)/documents/students/$(studentId)).data);
+        allow create, update, delete: if isSignedIn() && isOperationalStaff() && isSameSchool(get(/databases/$(database)/documents/students/$(studentId)).data);
       }
     }
 
@@ -85,32 +82,32 @@ service cloud.firestore {
     
     match /schedules/{id} {
       allow read: if isSignedIn() && isSameSchool(resource.data);
-      allow create: if isSignedIn() && (isAdmin() || isOperationalStaff()) && request.resource.data.schoolId == getStaffRoleData().schoolId;
-      allow update, delete: if isSignedIn() && (isAdmin() || isOperationalStaff()) && isSameSchool(resource.data);
+      allow create: if isSignedIn() && isOperationalStaff() && request.resource.data.schoolId == getStaffRoleData().schoolId;
+      allow update, delete: if isSignedIn() && isOperationalStaff() && isSameSchool(resource.data);
     }
 
     match /psychology_reports/{reportId} {
-      allow read: if isSignedIn() && (isAdmin() || hasRole('Academico')) && isSameSchool(resource.data);
-      allow create: if isSignedIn() && (isAdmin() || hasRole('Academico')) && request.resource.data.schoolId == getStaffRoleData().schoolId;
+      allow read: if isSignedIn() && isOperationalStaff() && isSameSchool(resource.data);
+      allow create: if isSignedIn() && isOperationalStaff() && request.resource.data.schoolId == getStaffRoleData().schoolId;
       allow update: if isSignedIn() && (isAdmin() || (hasRole('Academico') && resource.data.authorId == request.auth.uid)) && isSameSchool(resource.data);
       allow delete: if isAdmin() && isSameSchool(resource.data);
     }
 
     match /attendance/{id} {
       allow read: if isSignedIn() && (
-        ((isAdmin() || isOperationalStaff()) && isSameSchool(resource.data)) ||
+        (isOperationalStaff() && isSameSchool(resource.data)) ||
         (hasRole('Alumno') && isSameSchool(resource.data))
       );
-      allow create, update: if isSignedIn() && (isAdmin() || isOperationalStaff()) && request.resource.data.schoolId == getStaffRoleData().schoolId;
+      allow create, update: if isSignedIn() && isOperationalStaff() && request.resource.data.schoolId == getStaffRoleData().schoolId;
       allow delete: if isAdmin() && isSameSchool(resource.data);
     }
 
     match /grades/{id} {
       allow read: if isSignedIn() && (
-        ((isAdmin() || hasRole('Academico')) && isSameSchool(resource.data)) ||
+        (isOperationalStaff() && isSameSchool(resource.data)) ||
         (hasRole('Alumno') && isSameSchool(resource.data) && resource.data.studentIdNumber == getStaffRoleData().studentIdNumber)
       );
-      allow create, update: if isSignedIn() && (isAdmin() || hasRole('Academico')) && request.resource.data.schoolId == getStaffRoleData().schoolId;
+      allow create, update: if isSignedIn() && isOperationalStaff() && request.resource.data.schoolId == getStaffRoleData().schoolId;
       allow delete: if isAdmin() && isSameSchool(resource.data);
     }
   }

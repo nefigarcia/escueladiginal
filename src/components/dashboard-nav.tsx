@@ -62,7 +62,11 @@ export function DashboardNav({ schoolName, logoUrl, role }: DashboardNavProps) {
     { name: "Configuración", icon: Settings, href: "/configuracion", roles: ["Administrador", "Academico", "Alumno"] },
   ]
 
-  const filteredItems = allItems.filter(item => !role || item.roles.includes(role))
+  // If role is not yet available, we show only the common basic items or nothing to avoid flashes
+  const filteredItems = React.useMemo(() => {
+    if (!role) return allItems.filter(item => item.roles.includes("Administrador") && item.roles.includes("Alumno"))
+    return allItems.filter(item => item.roles.includes(role))
+  }, [role])
 
   return (
     <Sidebar collapsible="icon">
