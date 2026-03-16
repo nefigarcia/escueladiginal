@@ -35,11 +35,11 @@ function Calendar({
           "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute right-1 z-10"
         ),
         month_grid: "w-full border-collapse space-y-1",
-        weekdays: "flex justify-between mb-2",
+        weekdays: "grid grid-cols-7 mb-2",
         weekday: "text-muted-foreground rounded-md w-9 font-normal text-[0.8rem] text-center",
-        week: "flex w-full mt-1 justify-between",
+        week: "grid grid-cols-7 w-full mt-1",
         day: cn(
-          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20"
+          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 flex justify-center items-center"
         ),
         day_button: cn(
           buttonVariants({ variant: "ghost" }),
