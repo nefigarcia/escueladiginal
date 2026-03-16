@@ -37,13 +37,6 @@ import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, d
 import { collection, doc, serverTimestamp, setDoc, query, where } from "firebase/firestore"
 import { Checkbox } from "@/components/ui/checkbox"
 
-/**
- * CONFIGURACIÓN DE HORARIO DE RECESO
- * Modifica estas constantes para cambiar el horario global de descanso.
- */
-const RECESO_START = "10:30" // Formato 24h (HH:MM)
-const RECESO_END = "11:00"   // Formato 24h (HH:MM)
-
 const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 export default function ClasesPage() {
@@ -60,6 +53,12 @@ export default function ClasesPage() {
     return doc(firestore, "staff_roles", user.uid)
   }, [firestore, user])
   const { data: profile } = useDoc(profileRef)
+
+  const schoolRef = useMemoFirebase(() => {
+    if (!firestore || !profile?.schoolId) return null
+    return doc(firestore, "schools", profile.schoolId)
+  }, [firestore, profile])
+  const { data: school } = useDoc(schoolRef)
 
   const staffQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
@@ -136,9 +135,9 @@ export default function ClasesPage() {
       return
     }
 
-    // Validación de Receso
-    const rStart = timeToMinutes(RECESO_START)
-    const rEnd = timeToMinutes(RECESO_END)
+    // Configuración de Receso dinámica desde la escuela
+    const rStart = timeToMinutes(school?.recessStart || "10:30")
+    const rEnd = timeToMinutes(school?.recessEnd || "11:00")
     
     const overlaps = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && e1 > s2;
 
@@ -146,7 +145,7 @@ export default function ClasesPage() {
       toast({
         variant: "destructive",
         title: "Conflicto con Receso",
-        description: `El horario se traslapa con el receso institucional (${RECESO_START} - ${RECESO_END}).`
+        description: `El horario se traslapa con el receso institucional (${school?.recessStart || "10:30"} - ${school?.recessEnd || "11:00"}).`
       })
       return
     }
@@ -314,7 +313,7 @@ export default function ClasesPage() {
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-700 italic">
-                    Recuerda que no se pueden programar clases durante el receso institucional de <b>{RECESO_START} a {RECESO_END}</b>.
+                    Recuerda que no se pueden programar clases durante el receso institucional de <b>{school?.recessStart || "10:30"} a {school?.recessEnd || "11:00"}</b>.
                   </p>
                 </div>
               </div>

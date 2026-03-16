@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUser, useDoc, useFirestore, updateDocumentNonBlocking } from "@/firebase"
 import { doc, serverTimestamp } from "firebase/firestore"
-import { User, School, Save, Shield, BadgeCheck, Camera, Loader2, X, MapPin, Signature } from "lucide-react"
+import { User, School, Save, Shield, BadgeCheck, Camera, Loader2, X, MapPin, Signature, Clock } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
@@ -51,6 +51,8 @@ export default function ConfiguracionPage() {
     address: "",
     logoUrl: "",
     adminSignatureUrl: "",
+    recessStart: "10:30",
+    recessEnd: "11:00",
   })
 
   // Sync forms when data loads
@@ -71,6 +73,8 @@ export default function ConfiguracionPage() {
         address: school.address || "",
         logoUrl: school.logoUrl || "",
         adminSignatureUrl: school.adminSignatureUrl || "",
+        recessStart: school.recessStart || "10:30",
+        recessEnd: school.recessEnd || "11:00",
       })
     }
   }, [school])
@@ -294,40 +298,74 @@ export default function ConfiguracionPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-none shadow-md">
-                <CardHeader>
-                  <CardTitle className="font-headline text-xl flex items-center gap-2">
-                    <Signature className="h-5 w-5 text-primary" /> Firma Administrativa
-                  </CardTitle>
-                  <CardDescription>Sube una imagen de la firma autorizada para los recibos PDF.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl bg-muted/5 min-h-[160px]">
-                    {schoolForm.adminSignatureUrl ? (
-                      <div className="relative">
-                        <img src={schoolForm.adminSignatureUrl} alt="Firma" className="h-20 w-auto object-contain mb-4 bg-white p-2 rounded border" />
-                        <button 
-                          onClick={() => setSchoolForm(prev => ({ ...prev, adminSignatureUrl: "" }))}
-                          className="absolute -top-2 -right-2 p-1 bg-destructive text-white rounded-full"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+              <div className="space-y-6">
+                <Card className="border-none shadow-md">
+                  <CardHeader>
+                    <CardTitle className="font-headline text-xl flex items-center gap-2">
+                      <Signature className="h-5 w-5 text-primary" /> Firma Administrativa
+                    </CardTitle>
+                    <CardDescription>Sube una imagen de la firma autorizada.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl bg-muted/5 min-h-[160px]">
+                      {schoolForm.adminSignatureUrl ? (
+                        <div className="relative">
+                          <img src={schoolForm.adminSignatureUrl} alt="Firma" className="h-20 w-auto object-contain mb-4 bg-white p-2 rounded border" />
+                          <button 
+                            onClick={() => setSchoolForm(prev => ({ ...prev, adminSignatureUrl: "" }))}
+                            className="absolute -top-2 -right-2 p-1 bg-destructive text-white rounded-full"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <Signature className="h-12 w-12 text-muted-foreground/30 mx-auto mb-2" />
+                          <p className="text-xs text-muted-foreground">Sube una firma en formato PNG.</p>
+                        </div>
+                      )}
+                      
+                      <input type="file" ref={signatureInputRef} className="hidden" accept="image/*" onChange={handleSignatureChange} />
+                      <Button variant="outline" size="sm" className="mt-4" disabled={isUploadingSig} onClick={() => signatureInputRef.current?.click()}>
+                        {isUploadingSig ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
+                        {schoolForm.adminSignatureUrl ? "Cambiar Firma" : "Subir Firma"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-none shadow-md">
+                  <CardHeader>
+                    <CardTitle className="font-headline text-xl flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-primary" /> Parámetros Académicos
+                    </CardTitle>
+                    <CardDescription>Configura el horario institucional de receso.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Inicio del Receso</Label>
+                        <Input 
+                          type="time" 
+                          value={schoolForm.recessStart} 
+                          onChange={(e) => setSchoolForm({...schoolForm, recessStart: e.target.value})} 
+                        />
                       </div>
-                    ) : (
-                      <div className="text-center">
-                        <Signature className="h-12 w-12 text-muted-foreground/30 mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground">Sube una firma en formato PNG con fondo transparente preferentemente.</p>
+                      <div className="space-y-2">
+                        <Label>Fin del Receso</Label>
+                        <Input 
+                          type="time" 
+                          value={schoolForm.recessEnd} 
+                          onChange={(e) => setSchoolForm({...schoolForm, recessEnd: e.target.value})} 
+                        />
                       </div>
-                    )}
-                    
-                    <input type="file" ref={signatureInputRef} className="hidden" accept="image/*" onChange={handleSignatureChange} />
-                    <Button variant="outline" size="sm" className="mt-4" disabled={isUploadingSig} onClick={() => signatureInputRef.current?.click()}>
-                      {isUploadingSig ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
-                      {schoolForm.adminSignatureUrl ? "Cambiar Firma" : "Subir Firma"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                    </div>
+                    <p className="text-xs text-muted-foreground italic bg-muted/30 p-2 rounded">
+                      Este horario bloqueará la creación de clases durante este periodo para evitar traslapes.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
             
             <div className="flex justify-end">

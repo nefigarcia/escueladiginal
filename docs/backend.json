@@ -14,6 +14,8 @@
         "adminSignatureUrl": { "type": "string" },
         "activationCode": { "type": "string" },
         "directorId": { "type": "string" },
+        "recessStart": { "type": "string", "description": "Format HH:MM" },
+        "recessEnd": { "type": "string", "description": "Format HH:MM" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "activationCode", "directorId", "createdAt"]
