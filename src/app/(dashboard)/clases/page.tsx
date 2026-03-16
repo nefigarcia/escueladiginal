@@ -37,11 +37,14 @@ import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, d
 import { collection, doc, serverTimestamp, setDoc, query, where } from "firebase/firestore"
 import { Checkbox } from "@/components/ui/checkbox"
 
-const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+/**
+ * CONFIGURACIÓN DE HORARIO DE RECESO
+ * Modifica estas constantes para cambiar el horario global de descanso.
+ */
+const RECESO_START = "10:30" // Formato 24h (HH:MM)
+const RECESO_END = "11:00"   // Formato 24h (HH:MM)
 
-// Definición de horario de receso
-const RECESO_START = "10:30"
-const RECESO_END = "11:00"
+const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 export default function ClasesPage() {
   const { firestore } = useFirestore()
