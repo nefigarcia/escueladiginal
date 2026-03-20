@@ -12,7 +12,6 @@ import {
   Search, 
   CheckCircle2, 
   History, 
-  User, 
   Receipt,
   FileText,
   Loader2,
@@ -27,7 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc } from "@/firebase"
-import { collection, doc, serverTimestamp, getDoc, query, where, getDocs, limit, orderBy } from "firebase/firestore"
+import { collection, doc, serverTimestamp, query, where, getDocs, limit, orderBy } from "firebase/firestore"
 import { numberToWords } from "@/lib/number-to-words"
 import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
 import jsPDF from "jspdf"
@@ -82,23 +81,17 @@ export default function PagosPage() {
   }, [firestore, profile])
   const { data: school } = useDoc(schoolRef)
   
-  const studentsQuery = useMemoFirebase(() => {
-    if (!firestore || !profile?.schoolId || isStudent) return null
-    return query(collection(firestore, "students"), where("schoolId", "==", profile.schoolId))
-  }, [firestore, profile, isStudent])
-  const { data: students } = useCollection(studentsQuery)
-
-  const feeTypesQuery = useMemoFirebase(() => {
+  const feesQuery = useMemoFirebase(() => {
     if (!firestore || !profile?.schoolId) return null
     return query(collection(firestore, "fee_types"), where("schoolId", "==", profile.schoolId))
   }, [firestore, profile])
-  const { data: fees } = useCollection(feeTypesQuery)
+  const { data: fees } = useCollection(feesQuery)
 
   const selectedStudentRef = useMemoFirebase(() => {
     if (!firestore || !activeStudentId) return null
     return doc(firestore, "students", activeStudentId)
   }, [firestore, activeStudentId])
-  const { data: activeStudent, isLoading: isLoadingActiveStudent } = useDoc(selectedStudentRef)
+  const { data: activeStudent } = useDoc(selectedStudentRef)
 
   const [paymentMethod, setPaymentMethod] = React.useState<string>("Efectivo")
   const [paymentDate, setPaymentDate] = React.useState<string>(new Date().toISOString().split('T')[0])
@@ -106,12 +99,11 @@ export default function PagosPage() {
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const [items, setItems] = React.useState<PaymentItem[]>([
-    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }
+    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: "" }
   ])
 
   React.useEffect(() => {
     if (!mounted) return;
-
     if (isStudent && profile?.studentIdNumber && !activeStudentId) {
       handleSearchStudent(profile.studentIdNumber);
     } else if (initialStudentId && !activeStudentId) {
@@ -161,7 +153,7 @@ export default function PagosPage() {
       type, 
       name: '', 
       amount: 0,
-      month: MONTHS[new Date().getMonth()]
+      month: ""
     };
     setItems([...items, newItem])
   }
@@ -180,6 +172,12 @@ export default function PagosPage() {
           if (fee) {
             updated.name = fee.name
             updated.amount = fee.baseAmount || 0
+            // Reset month if not colegiatura
+            if (!fee.name.toLowerCase().includes('colegiatura')) {
+              updated.month = "";
+            } else if (!updated.month) {
+              updated.month = MONTHS[new Date().getMonth()];
+            }
           }
         }
         return updated
@@ -189,10 +187,12 @@ export default function PagosPage() {
     setItems(newList);
   }
 
+  const formTotal = items.reduce((sum, it) => sum + (it.amount || 0), 0)
+  const remainingBalanceAfterThis = Math.max(0, (activeStudent?.outstandingBalance || 0) - formTotal);
+
   const handleProcessPayment = async () => {
     if (!activeStudent || !firestore || !profile?.schoolId) return
-    const total = items.reduce((sum, it) => sum + (it.amount || 0), 0)
-    if (total <= 0) return
+    if (formTotal <= 0) return
 
     setIsProcessing(true)
     
@@ -203,7 +203,7 @@ export default function PagosPage() {
         studentId: activeStudent.id,
         studentName: `${activeStudent.firstName} ${activeStudent.lastName}`,
         items: items,
-        totalAmount: total,
+        totalAmount: formTotal,
         paymentDate: paymentDate,
         paymentMethod: paymentMethod,
         receivedFrom: receivedFrom,
@@ -215,12 +215,12 @@ export default function PagosPage() {
 
       const studentDocRef = doc(firestore, "students", activeStudent.id)
       await updateDocumentNonBlocking(studentDocRef, {
-        outstandingBalance: Math.max(0, (activeStudent.outstandingBalance || 0) - total),
+        outstandingBalance: remainingBalanceAfterThis,
         updatedAt: serverTimestamp(),
       })
       
       toast({ title: "Pago Procesado con Éxito" })
-      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: MONTHS[new Date().getMonth()] }])
+      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, month: "" }])
     } catch (error) {
       toast({ variant: "destructive", title: "Error al procesar", description: "Ocurrió un problema al guardar el pago." })
     } finally {
@@ -260,7 +260,8 @@ export default function PagosPage() {
         student: activeStudent,
         school,
         montoEnLetra: numberToWords(payment.totalAmount || 0),
-        dateFormatted: new Date(payment.paymentDate + 'T12:00:00').toLocaleDateString()
+        dateFormatted: new Date(payment.paymentDate + 'T12:00:00').toLocaleDateString(),
+        remainingBalanceAfterThis: Math.max(0, (activeStudent?.outstandingBalance || 0) - (payment.totalAmount || 0))
       };
       setPdfData(fullData);
       setTimeout(async () => {
@@ -278,11 +279,9 @@ export default function PagosPage() {
 
   if (!mounted) return null
 
-  const formTotal = items.reduce((sum, it) => sum + (it.amount || 0), 0)
-
   return (
     <div className="space-y-6">
-      {/* PDF Hidden Template Restaurado */}
+      {/* PDF Hidden Template */}
       <div className="fixed -left-[4000px] top-0">
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm] relative overflow-hidden">
           {pdfData && (
@@ -354,10 +353,6 @@ export default function PagosPage() {
                     <span className="text-lg italic ml-4">{pdfData.payment.paymentMethod}</span>
                   </div>
                 </div>
-                <div className="flex items-baseline border-b border-black/5 pb-2">
-                  <span className="text-sm font-bold uppercase w-32 shrink-0">Domicilio:</span>
-                  <span className="text-lg italic ml-4 flex-1 truncate">{pdfData.student?.address || "N/A"}</span>
-                </div>
               </div>
 
               {/* Conceptos Table */}
@@ -386,7 +381,7 @@ export default function PagosPage() {
                 </div>
                 <div className="flex justify-between items-center text-rose-600 pt-2">
                   <span className="text-xs font-bold uppercase tracking-widest">Saldo pendiente después de este pago:</span>
-                  <span className="text-xl font-black">${(pdfData.student?.outstandingBalance || 0).toLocaleString()} MXN</span>
+                  <span className="text-xl font-black">${(pdfData.remainingBalanceAfterThis || 0).toLocaleString()} MXN</span>
                 </div>
               </div>
 
@@ -453,7 +448,7 @@ export default function PagosPage() {
                   <div className="space-y-3">
                     {items.map((item, index) => (
                       <div key={item.id} className="grid grid-cols-12 gap-3 items-start bg-muted/20 p-3 rounded-lg border">
-                        <div className="col-span-5 space-y-2">
+                        <div className={item.type === 'fee' && item.name.toLowerCase().includes('colegiatura') ? "col-span-5 space-y-2" : "col-span-8 space-y-2"}>
                           <Label className="text-[10px] uppercase opacity-50">Concepto</Label>
                           {item.type === 'fee' ? (
                             <Select value={item.feeId} onValueChange={(v) => updateItem(item.id, { feeId: v })}>
@@ -466,15 +461,19 @@ export default function PagosPage() {
                             <Input placeholder="Concepto personalizado" value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} />
                           )}
                         </div>
-                        <div className="col-span-3 space-y-2">
-                          <Label className="text-[10px] uppercase opacity-50">Mes</Label>
-                          <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v })}>
-                            <SelectTrigger><SelectValue placeholder="Mes..." /></SelectTrigger>
-                            <SelectContent>
-                              {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        
+                        {item.type === 'fee' && item.name.toLowerCase().includes('colegiatura') && (
+                          <div className="col-span-3 space-y-2">
+                            <Label className="text-[10px] uppercase opacity-50">Mes</Label>
+                            <Select value={item.month} onValueChange={(v) => updateItem(item.id, { month: v })}>
+                              <SelectTrigger><SelectValue placeholder="Mes..." /></SelectTrigger>
+                              <SelectContent>
+                                {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        
                         <div className="col-span-3 space-y-2">
                           <Label className="text-[10px] uppercase opacity-50">Monto</Label>
                           <Input type="number" value={item.amount || ""} onChange={(e) => updateItem(item.id, { amount: parseFloat(e.target.value) || 0 })} placeholder="0.00" />
@@ -528,7 +527,6 @@ export default function PagosPage() {
                   <Card className={`border-none shadow-lg overflow-hidden transition-colors ${Number(activeStudent.outstandingBalance || 0) > 0 ? 'bg-rose-600' : 'bg-emerald-600'} text-white`}>
                     <CardHeader className="pb-4">
                       <CardTitle className="font-headline text-2xl">Resumen Estudiantil</CardTitle>
-                      <CardDescription className="text-white/70">Información actualizada al momento.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                       <div className="flex items-center gap-4">
@@ -547,44 +545,19 @@ export default function PagosPage() {
                       
                       <div className="h-px bg-white/20" />
                       
-                      <div className="space-y-1">
-                        <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO TOTAL PENDIENTE</p>
-                        <p className="text-4xl font-black tracking-tight">
-                          ${Number(activeStudent.outstandingBalance || 0).toLocaleString()} <span className="text-lg font-normal opacity-70">MXN</span>
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 pt-2">
-                        <div className="p-3 bg-white/10 rounded-lg">
-                          <p className="text-[9px] uppercase font-bold opacity-60">Último Pago</p>
-                          <p className="text-sm font-bold">{payments?.[0]?.paymentDate ? new Date(payments[0].paymentDate + 'T12:00:00').toLocaleDateString() : "---"}</p>
-                        </div>
-                        <div className="p-3 bg-white/10 rounded-lg">
-                          <p className="text-[9px] uppercase font-bold opacity-60">Estatus</p>
-                          <p className="text-sm font-bold">{Number(activeStudent.outstandingBalance || 0) > 0 ? 'Con Adeudo' : 'Al Corriente'}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-none shadow-md bg-white">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="font-headline text-xl text-primary flex items-center gap-2">
-                        <CalendarDays className="h-5 w-5" /> Próximos Vencimientos
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between py-2 border-b">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold">Colegiatura {MONTHS[new Date().getMonth()]}</span>
-                            <span className="text-[10px] text-muted-foreground uppercase">Ciclo Escolar 2024</span>
-                          </div>
-                          {Number(activeStudent.outstandingBalance || 0) > 0 ? (
-                            <Badge variant="destructive" className="rounded-full px-4 h-6 uppercase text-[9px]">Pendiente</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-emerald-600 border-emerald-200 rounded-full px-4 h-6 uppercase text-[9px]">Cubierto</Badge>
-                          )}
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO ACTUAL</p>
+                          <p className="text-3xl font-black tracking-tight">
+                            ${Number(activeStudent.outstandingBalance || 0).toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
+                          </p>
+                        </div>
+
+                        <div className="space-y-1 p-3 bg-white/10 rounded-lg">
+                          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO DESPUÉS DE ESTE PAGO</p>
+                          <p className="text-2xl font-black tracking-tight text-white">
+                            ${remainingBalanceAfterThis.toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
+                          </p>
                         </div>
                       </div>
                     </CardContent>
@@ -606,9 +579,6 @@ export default function PagosPage() {
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="font-headline">Historial de Transacciones</CardTitle>
-                  <CardDescription>
-                    {activeStudent ? `Mostrando pagos de: ${activeStudent.firstName} ${activeStudent.lastName}` : "Busca un alumno para ver su historial."}
-                  </CardDescription>
                 </div>
                 {activeStudent && (
                   <Badge variant="outline" className="bg-white">

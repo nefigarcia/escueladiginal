@@ -3,8 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * Escuela Digital MX - Reglas de Seguridad Simplificadas
-     * Optimizadas para evitar errores de permisos en operaciones de listado.
+     * Escuela Digital MX - Reglas de Seguridad Optimizadas
      */
 
     function isSignedIn() {
@@ -35,10 +34,9 @@ service cloud.firestore {
     }
 
     match /psychology_reports/{reportId} {
-      // Regla simplificada para permitir listados basados en schoolId
-      allow read: if isSignedIn() && 
-                    (resource == null || resource.data.schoolId == getStaff().schoolId) &&
-                    (getStaff().role == 'Administrador' || getStaff().role == 'Academico');
+      // Regla optimizada para permitir listados basados en schoolId
+      allow list: if isSignedIn() && (getStaff().role == 'Administrador' || getStaff().role == 'Academico');
+      allow get: if isSignedIn() && resource.data.schoolId == getStaff().schoolId;
       
       allow create: if isSignedIn() && 
                       request.resource.data.schoolId == getStaff().schoolId && 
@@ -71,11 +69,6 @@ service cloud.firestore {
     match /schedules/{id} {
       allow read: if isSignedIn() && (resource == null || resource.data.schoolId == getStaff().schoolId);
       allow write: if isSignedIn() && (getStaff().role == 'Administrador' || getStaff().role == 'Academico');
-    }
-
-    match /fee_types/{id} {
-      allow read: if isSignedIn() && (resource == null || resource.data.schoolId == getStaff().schoolId);
-      allow create, update, delete: if isSignedIn() && getStaff().role == 'Administrador';
     }
   }
 }
