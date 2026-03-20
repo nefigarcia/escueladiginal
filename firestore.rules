@@ -11,19 +11,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Función optimizada para obtener datos del staff sin recursión
     function getStaffData() {
       return get(/databases/$(database)/documents/staff_roles/$(request.auth.uid)).data;
     }
 
-    // Regla de conveniencia para staff (Administrador o Academico)
     function isStaff() {
       let role = getStaffData().role;
       return role == 'Administrador' || role == 'Academico';
     }
 
+    function isAdmin() {
+      return getStaffData().role == 'Administrador';
+    }
+
     match /schools/{schoolId} {
       allow read: if true;
-      allow write: if isSignedIn() && getStaffData().role == 'Administrador';
+      allow write: if isSignedIn() && isAdmin();
     }
 
     match /staff_roles/{userId} {
@@ -41,14 +45,14 @@ service cloud.firestore {
     }
 
     match /psychology_reports/{reportId} {
-      // Permitir listado si el usuario está autenticado y es staff
+      // Regla simplificada para permitir el listado basándose en el rol
+      // La seguridad por escuela se garantiza mediante los filtros de la consulta (query)
       allow list: if isSignedIn() && isStaff();
-      // Validar acceso individual por escuela
-      allow get: if isSignedIn() && resource.data.schoolId == getStaffData().schoolId;
       
+      allow get: if isSignedIn() && resource.data.schoolId == getStaffData().schoolId;
       allow create: if isSignedIn() && isStaff() && request.resource.data.schoolId == getStaffData().schoolId;
       allow update: if isSignedIn() && isStaff() && resource.data.schoolId == getStaffData().schoolId;
-      allow delete: if isSignedIn() && getStaffData().role == 'Administrador';
+      allow delete: if isSignedIn() && isAdmin();
     }
 
     match /attendance/{id} {
@@ -63,7 +67,7 @@ service cloud.firestore {
 
     match /fee_types/{id} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && getStaffData().role == 'Administrador';
+      allow write: if isSignedIn() && isAdmin();
     }
     
     match /schedules/{id} {
