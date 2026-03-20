@@ -101,7 +101,7 @@ export default function PagosPage() {
   const [isProcessing, setIsProcessing] = React.useState(false)
 
   const [items, setItems] = React.useState<PaymentItem[]>([
-    { id: Math.random().toString(36).substr(2, 9), type: 'custom', name: '', amount: 0, baseAmount: 0, month: "" }
+    { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, baseAmount: 0, month: "" }
   ])
 
   React.useEffect(() => {
@@ -183,7 +183,6 @@ export default function PagosPage() {
             }
           }
         }
-        // If type custom, baseAmount equals paid amount to not create debt unless specified
         if (item.type === 'custom') {
             updated.baseAmount = updated.amount;
         }
@@ -194,11 +193,8 @@ export default function PagosPage() {
     setItems(newList);
   }
 
-  // Math for calculations
   const totalToPay = items.reduce((sum, it) => sum + (it.amount || 0), 0)
   
-  // Outstanding logic: 
-  // Debt change = Sum(baseAmount - amountPaid)
   const debtDelta = items.reduce((acc, item) => {
     const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0);
     const paid = item.amount || 0;
@@ -239,7 +235,7 @@ export default function PagosPage() {
       })
       
       toast({ title: "Pago Procesado con Éxito" })
-      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'custom', name: '', amount: 0, baseAmount: 0, month: "" }])
+      setItems([{ id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, baseAmount: 0, month: "" }])
     } catch (error) {
       toast({ variant: "destructive", title: "Error al procesar", description: "Ocurrió un problema al guardar el pago." })
     } finally {
@@ -300,7 +296,6 @@ export default function PagosPage() {
 
   return (
     <div className="space-y-6">
-      {/* PDF Hidden Template */}
       <div className="fixed -left-[4000px] top-0">
         <div ref={pdfTemplateRef} className="w-[210mm] p-[15mm] bg-white text-black font-serif min-h-[297mm] relative overflow-hidden">
           {pdfData && (
@@ -442,7 +437,7 @@ export default function PagosPage() {
                   <div className="flex items-center justify-between border-b pb-2">
                     <Label className="text-lg font-bold">Conceptos de Pago</Label>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1"><Plus className="h-4 w-4" /> Catálogo</Button>
+                      <Button variant="outline" size="sm" onClick={() => addItem('fee')} className="gap-1"><Plus className="h-4 w-4" /> Tarifa</Button>
                       <Button variant="outline" size="sm" onClick={() => addItem('custom')} className="gap-1"><Plus className="h-4 w-4" /> Otro</Button>
                     </div>
                   </div>
