@@ -22,7 +22,9 @@ import {
   CalendarDays,
   UserCircle,
   Edit2,
-  Save
+  Save,
+  ShieldCheck,
+  Zap
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -51,7 +53,7 @@ interface PaymentItem {
   feeId?: string;
   name: string;
   amount: number;
-  baseAmount: number; // Original amount from config
+  baseAmount: number; 
   month?: string;
 }
 
@@ -69,6 +71,7 @@ export default function PagosPage() {
   const [mounted, setMounted] = React.useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = React.useState<string | null>(null)
   const [isSendingWA, setIsSendingWA] = React.useState<string | null>(null)
+  const [isStripeLoading, setIsStripeLoading] = React.useState(false)
   
   const pdfTemplateRef = React.useRef<HTMLDivElement>(null)
   const [pdfData, setPdfData] = React.useState<any>(null)
@@ -76,7 +79,6 @@ export default function PagosPage() {
   const [selectedStudentId, setSelectedStudentId] = React.useState<string>(initialStudentId)
   const [activeStudentId, setActiveStudentId] = React.useState<string | null>(null)
 
-  // Edit Payment State
   const [isEditPaymentOpen, setIsEditPaymentOpen] = React.useState(false)
   const [paymentToEdit, setPaymentToEdit] = React.useState<any>(null)
 
@@ -115,7 +117,6 @@ export default function PagosPage() {
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
-  // Default type is 'fee'
   const [items, setItems] = React.useState<PaymentItem[]>([
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, baseAmount: 0, month: "" }
   ])
@@ -164,6 +165,40 @@ export default function PagosPage() {
       console.error(e)
     }
   }
+
+  const handleOnlinePayment = async () => {
+    if (!activeStudent || !school) return;
+    
+    setIsStripeLoading(true);
+    try {
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: activeStudent.id,
+          amount: activeStudent.outstandingBalance,
+          schoolId: school.id,
+          studentName: `${activeStudent.firstName} ${activeStudent.lastName}`,
+          email: activeStudent.email || user?.email
+        }),
+      });
+
+      const data = await response.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || 'No se pudo generar la sesión de pago.');
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error de Pago",
+        description: error.message
+      });
+    } finally {
+      setIsStripeLoading(false);
+    }
+  };
 
   const addItem = (type: 'fee' | 'custom') => {
     const newItem: PaymentItem = { 
@@ -331,7 +366,6 @@ export default function PagosPage() {
     if (!firestore || !paymentToEdit || !activeStudentId || !activeStudent) return
 
     try {
-      // 1. Revert Balance on Student
       const paymentItems = paymentToEdit.items || []
       const pDelta = paymentItems.reduce((acc: number, item: any) => {
         const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0)
@@ -347,7 +381,6 @@ export default function PagosPage() {
         updatedAt: serverTimestamp(),
       })
 
-      // 2. Delete the payment document
       const paymentDocRef = doc(firestore, "students", activeStudentId, "payments", paymentToEdit.id)
       deleteDocumentNonBlocking(paymentDocRef)
 
@@ -591,44 +624,67 @@ export default function PagosPage() {
 
             <div className="space-y-6">
               {activeStudent ? (
-                <Card className={`border-none shadow-lg overflow-hidden transition-colors ${remainingBalanceAfterThis > 0 ? 'bg-rose-600' : 'bg-emerald-600'} text-white`}>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="font-headline text-2xl">Resumen Estudiantil</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-16 w-16 border-2 border-white/20 bg-white/10 text-white">
-                        <AvatarImage src={`https://picsum.photos/seed/${activeStudent.id}/100/100`} />
-                        <AvatarFallback><UserCircle className="h-12 w-12" /></AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-bold text-xl leading-tight">{activeStudent.firstName} {activeStudent.lastName}</p>
-                        <p className="text-sm opacity-90">{activeStudent.gradeLevel}</p>
-                        <Badge variant="secondary" className="mt-1 bg-white/20 text-white border-none text-[10px]">
-                          MAT: {activeStudent.studentIdNumber}
-                        </Badge>
+                <div className="space-y-4">
+                  <Card className={`border-none shadow-lg overflow-hidden transition-colors ${remainingBalanceAfterThis > 0 ? 'bg-rose-600' : 'bg-emerald-600'} text-white`}>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="font-headline text-2xl">Resumen Estudiantil</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="flex items-center gap-4">
+                        <Avatar className="h-16 w-16 border-2 border-white/20 bg-white/10 text-white">
+                          <AvatarImage src={`https://picsum.photos/seed/${activeStudent.id}/100/100`} />
+                          <AvatarFallback><UserCircle className="h-12 w-12" /></AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-bold text-xl leading-tight">{activeStudent.firstName} {activeStudent.lastName}</p>
+                          <p className="text-sm opacity-90">{activeStudent.gradeLevel}</p>
+                          <Badge variant="secondary" className="mt-1 bg-white/20 text-white border-none text-[10px]">
+                            MAT: {activeStudent.studentIdNumber}
+                          </Badge>
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="h-px bg-white/20" />
-                    
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO ACTUAL</p>
-                        <p className="text-3xl font-black tracking-tight">
-                          ${currentDebt.toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
-                        </p>
-                      </div>
+                      
+                      <div className="h-px bg-white/20" />
+                      
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO ACTUAL</p>
+                          <p className="text-3xl font-black tracking-tight">
+                            ${currentDebt.toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
+                          </p>
+                        </div>
 
-                      <div className="space-y-1 p-3 bg-white/10 rounded-lg">
-                        <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO PENDIENTE DESPUÉS DE ESTE PAGO</p>
-                        <p className="text-2xl font-black tracking-tight text-white">
-                          ${remainingBalanceAfterThis.toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
-                        </p>
+                        <div className="space-y-1 p-3 bg-white/10 rounded-lg">
+                          <p className="text-[10px] uppercase font-bold tracking-widest opacity-70">SALDO PENDIENTE DESPUÉS DE ESTE PAGO</p>
+                          <p className="text-2xl font-black tracking-tight text-white">
+                            ${remainingBalanceAfterThis.toLocaleString()} <span className="text-sm font-normal opacity-70">MXN</span>
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+
+                  {isStudent && activeStudent.outstandingBalance > 0 && (
+                    <Card className="border-none shadow-md bg-accent text-accent-foreground">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Zap className="h-5 w-5" /> Pago Seguro en Línea
+                        </CardTitle>
+                        <CardDescription className="text-accent-foreground/80">Paga ahora con Tarjeta, SPEI u OXXO.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button 
+                          className="w-full bg-white text-primary hover:bg-white/90 font-bold"
+                          disabled={isStripeLoading}
+                          onClick={handleOnlinePayment}
+                        >
+                          {isStripeLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+                          Pagar ${activeStudent.outstandingBalance.toLocaleString()} MXN
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-xl bg-muted/10 opacity-40 text-center">
                   <UserCircle className="h-16 w-16 mb-4" />
@@ -704,7 +760,6 @@ export default function PagosPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Edit Payment Dialog */}
       <Dialog open={isEditPaymentOpen} onOpenChange={setIsEditPaymentOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
@@ -741,6 +796,7 @@ export default function PagosPage() {
                       <SelectItem value="Transferencia">Transferencia</SelectItem>
                       <SelectItem value="Tarjeta">Tarjeta</SelectItem>
                       <SelectItem value="Depósito">Depósito Bancario</SelectItem>
+                      <SelectItem value="Stripe Online">Stripe Online</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
