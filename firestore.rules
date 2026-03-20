@@ -11,27 +11,33 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Función optimizada para obtener datos del staff sin recursión
-    function getStaffData() {
+    // Obtener datos del perfil del usuario (staff o alumno)
+    function getProfileData() {
       return get(/databases/$(database)/documents/staff_roles/$(request.auth.uid)).data;
     }
 
     function isStaff() {
-      let role = getStaffData().role;
-      return role == 'Administrador' || role == 'Academico';
+      let profile = getProfileData();
+      return profile.role == 'Administrador' || profile.role == 'Academico';
     }
 
     function isAdmin() {
-      return getStaffData().role == 'Administrador';
+      return getProfileData().role == 'Administrador';
+    }
+
+    // Regla para validar que el recurso pertenece a la misma escuela que el usuario
+    function isSameSchool(schoolId) {
+      return schoolId == getProfileData().schoolId;
     }
 
     match /schools/{schoolId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if isSignedIn() && isAdmin();
     }
 
     match /staff_roles/{userId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
     }
 
     match /students/{studentId} {
@@ -45,18 +51,16 @@ service cloud.firestore {
     }
 
     match /psychology_reports/{reportId} {
-      // Regla simplificada para permitir el listado basándose en el rol
-      // La seguridad por escuela se garantiza mediante los filtros de la consulta (query)
-      allow list: if isSignedIn() && isStaff();
+      // Permitir listado si el usuario es staff y filtra por su propia escuela
+      allow list: if isSignedIn() && isStaff() && request.query.limit <= 100;
       
-      allow get: if isSignedIn() && resource.data.schoolId == getStaffData().schoolId;
-      allow create: if isSignedIn() && isStaff() && request.resource.data.schoolId == getStaffData().schoolId;
-      allow update: if isSignedIn() && isStaff() && resource.data.schoolId == getStaffData().schoolId;
+      // Permitir lectura individual y escritura si coincide la escuela
+      allow get, create, update: if isSignedIn() && isStaff() && isSameSchool(request.resource.data.schoolId || resource.data.schoolId);
       allow delete: if isSignedIn() && isAdmin();
     }
 
     match /attendance/{id} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && isSameSchool(resource.data.schoolId);
       allow write: if isSignedIn() && isStaff();
     }
 

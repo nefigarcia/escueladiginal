@@ -664,7 +664,7 @@ export default function PagosPage() {
                     </CardContent>
                   </Card>
 
-                  {isStudent && activeStudent.outstandingBalance > 0 && (
+                  {activeStudent.outstandingBalance > 0 && (
                     <Card className="border-none shadow-md bg-accent text-accent-foreground">
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
