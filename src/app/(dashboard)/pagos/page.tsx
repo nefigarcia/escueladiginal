@@ -28,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
-import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc } from "@/firebase"
+import { useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, useUser, useDoc, deleteDocumentNonBlocking } from "@/firebase"
 import { collection, doc, serverTimestamp, query, where, getDocs, limit, orderBy } from "firebase/firestore"
 import { numberToWords } from "@/lib/number-to-words"
 import { smartParentCommunicationsDrafting } from "@/ai/flows/smart-parent-communications-drafting"
@@ -115,7 +115,7 @@ export default function PagosPage() {
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
-  // Default type is 'fee' now
+  // Default type is 'fee'
   const [items, setItems] = React.useState<PaymentItem[]>([
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, baseAmount: 0, month: "" }
   ])
@@ -325,6 +325,38 @@ export default function PagosPage() {
     setIsEditPaymentOpen(false)
     setPaymentToEdit(null)
     toast({ title: "Transacción actualizada" })
+  }
+
+  const handleDeletePayment = async () => {
+    if (!firestore || !paymentToEdit || !activeStudentId || !activeStudent) return
+
+    try {
+      // 1. Revert Balance on Student
+      const paymentItems = paymentToEdit.items || []
+      const pDelta = paymentItems.reduce((acc: number, item: any) => {
+        const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0)
+        const paid = item.amount || 0
+        return acc + (base - paid)
+      }, 0)
+
+      const revertedBalance = Math.max(0, (activeStudent.outstandingBalance || 0) - pDelta)
+      
+      const studentDocRef = doc(firestore, "students", activeStudentId)
+      updateDocumentNonBlocking(studentDocRef, {
+        outstandingBalance: revertedBalance,
+        updatedAt: serverTimestamp(),
+      })
+
+      // 2. Delete the payment document
+      const paymentDocRef = doc(firestore, "students", activeStudentId, "payments", paymentToEdit.id)
+      deleteDocumentNonBlocking(paymentDocRef)
+
+      setIsEditPaymentOpen(false)
+      setPaymentToEdit(null)
+      toast({ title: "Transacción eliminada", description: "El saldo del alumno ha sido revertido." })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error al eliminar" })
+    }
   }
 
   if (!mounted) return null
@@ -714,15 +746,20 @@ export default function PagosPage() {
                 </div>
               </div>
               <div className="p-3 bg-muted rounded-lg border text-xs text-muted-foreground italic">
-                Nota: La edición de montos no está permitida en esta vista para preservar la integridad de los balances. Si necesitas corregir un monto, por favor elimina el registro y crea uno nuevo.
+                Nota: La edición de montos no está permitida para preservar la integridad de los balances. Si necesitas corregir un monto, por favor elimina el registro.
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditPaymentOpen(false)}>Cancelar</Button>
-            <Button className="gap-2" onClick={handleSaveEditPayment}>
-              <Save className="h-4 w-4" /> Guardar Cambios
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="destructive" className="gap-2 sm:mr-auto" onClick={handleDeletePayment}>
+              <Trash2 className="h-4 w-4" /> Eliminar Transacción
             </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsEditPaymentOpen(false)}>Cancelar</Button>
+              <Button className="gap-2" onClick={handleSaveEditPayment}>
+                <Save className="h-4 w-4" /> Guardar Cambios
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
