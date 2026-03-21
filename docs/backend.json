@@ -14,6 +14,7 @@
         "adminSignatureUrl": { "type": "string" },
         "activationCode": { "type": "string" },
         "directorId": { "type": "string" },
+        "stripeAccountId": { "type": "string", "description": "ID de la cuenta conectada de Stripe para recibir pagos." },
         "recessStart": { "type": "string", "description": "Format HH:MM" },
         "recessEnd": { "type": "string", "description": "Format HH:MM" },
         "createdAt": { "type": "string", "format": "date-time" }

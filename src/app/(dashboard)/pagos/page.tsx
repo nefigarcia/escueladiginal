@@ -244,13 +244,10 @@ export default function PagosPage() {
   const totalToPay = items.reduce((sum, it) => sum + (it.amount || 0), 0)
   
   // Lógica de Matemática Financiera para Saldo Pendiente
+  // Saldo Restante = Saldo Actual + (Suma de Bases de Tarifas del catálogo - Suma de Montos Pagados de esas tarifas)
   const debtDelta = items.reduce((acc, item) => {
-    // Si es una tarifa del catálogo, calculamos la diferencia entre lo que debería pagar y lo que paga
-    // Si paga menos de la base, la diferencia aumenta la deuda.
     const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0);
     const paid = item.amount || 0;
-    
-    // Si es tipo 'custom' (Otro), el base es igual al paid, por lo que delta es 0 (no afecta deuda futura)
     return acc + (base - paid);
   }, 0);
 
@@ -274,7 +271,7 @@ export default function PagosPage() {
         paymentDate: paymentDate,
         paymentMethod: paymentMethod,
         receivedFrom: receivedFrom,
-        remainingBalanceAfterThis: remainingBalanceAfterThis, // Guardamos el saldo resultante en la transaccion
+        remainingBalanceAfterThis: remainingBalanceAfterThis,
         status: 'completado',
         createdAt: serverTimestamp(),
       }
@@ -368,7 +365,6 @@ export default function PagosPage() {
     if (!firestore || !paymentToEdit || !activeStudentId || !activeStudent) return
 
     try {
-      // Revertir el balance calculado de esta transaccion
       const paymentItems = paymentToEdit.items || []
       const pDelta = paymentItems.reduce((acc: number, item: any) => {
         const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0)

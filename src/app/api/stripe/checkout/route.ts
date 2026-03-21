@@ -1,10 +1,12 @@
 
 import { NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
+import { initializeFirebase } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 /**
  * Creates a Stripe Checkout Session for a student to pay their outstanding balance.
- * Supports Mexican payment methods: Cards, OXXO, and SPEI.
+ * Supports Multi-tenant routing via Stripe Connect if the school has a stripeAccountId.
  */
 export async function POST(req: Request) {
   try {
@@ -14,10 +16,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Faltan datos requeridos.' }, { status: 400 });
     }
 
+    const { firestore } = initializeFirebase();
+    const schoolSnap = await getDoc(doc(firestore, 'schools', schoolId));
+    const schoolData = schoolSnap.data();
+    const stripeAccountId = schoolData?.stripeAccountId;
+
     // Amount must be in cents for Stripe (MXN uses 2 decimals)
     const amountInCents = Math.round(amount * 100);
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionOptions: any = {
       payment_method_types: ['card', 'oxxo', 'customer_balance'],
       payment_method_options: {
         customer_balance: {
@@ -45,12 +52,21 @@ export async function POST(req: Request) {
       cancel_url: `${req.headers.get('origin')}/pagos?canceled=true`,
       customer_email: email || undefined,
       metadata: {
-        studentId, // This is the Firestore Document ID
+        studentId,
         schoolId,
         studentName,
         paymentType: 'online_stripe',
       },
-    });
+    };
+
+    // Si la escuela tiene su propia cuenta de Stripe, enviamos el dinero ahí (Stripe Connect)
+    if (stripeAccountId) {
+      sessionOptions.transfer_data = {
+        destination: stripeAccountId,
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
