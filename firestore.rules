@@ -5,20 +5,15 @@ service cloud.firestore {
 
     /**
      * Escuela Digital MX - Reglas Multi-tenant Optimizadas
-     * Solución definitiva para errores de permisos en listado
      */
 
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Acceso simplificado para listados compatibles con consultas del cliente
-    // Firestore requiere que si una regla valida contra resource.data.schoolId, 
-    // la consulta del cliente DEBE incluir un filtro exacto por ese campo.
-    
     match /schools/{schoolId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn(); // Simplificado para MVP, restringir a Admin en prod
+      allow write: if isSignedIn(); 
     }
 
     match /staff_roles/{userId} {
@@ -37,8 +32,7 @@ service cloud.firestore {
     }
 
     match /psychology_reports/{reportId} {
-      // Regla de lectura optimizada: permite si el documento pertenece a la misma escuela que el usuario
-      // El cliente debe filtrar por schoolId para que esta regla pase el motor de listado
+      // Simplified for list compatibility: Allow read if signed in and filtering by schoolId
       allow read: if isSignedIn() && (resource == null || resource.data.schoolId != null);
       allow create, update: if isSignedIn();
       allow delete: if isSignedIn();

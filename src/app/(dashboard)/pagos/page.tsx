@@ -117,6 +117,7 @@ export default function PagosPage() {
   const [receivedFrom, setReceivedFrom] = React.useState<string>("")
   const [isProcessing, setIsProcessing] = React.useState(false)
 
+  // Default type is 'fee' as requested
   const [items, setItems] = React.useState<PaymentItem[]>([
     { id: Math.random().toString(36).substr(2, 9), type: 'fee', name: '', amount: 0, baseAmount: 0, month: "" }
   ])
@@ -227,6 +228,7 @@ export default function PagosPage() {
             updated.name = fee.name
             updated.baseAmount = fee.baseAmount || 0
             updated.amount = fee.baseAmount || 0
+            // Mes only if it contains 'Colegiatura'
             if (fee.name.toLowerCase().includes('colegiatura')) {
               updated.month = updated.month || MONTHS[new Date().getMonth()];
             } else {
@@ -243,12 +245,14 @@ export default function PagosPage() {
 
   const totalToPay = items.reduce((sum, it) => sum + (it.amount || 0), 0)
   
-  // Lógica de Matemática Financiera para Saldo Pendiente
-  // Saldo Restante = Saldo Actual + (Suma de Diferencias entre lo que se debería pagar y lo pagado)
+  // Financial Math: Remaining Balance = Current Balance + (Difference of Base - Paid for Fees)
   const debtDelta = items.reduce((acc, item) => {
-    const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0);
-    const paid = item.amount || 0;
-    return acc + (base - paid);
+    if (item.type === 'fee' && item.baseAmount > 0) {
+      const base = item.baseAmount || 0;
+      const paid = item.amount || 0;
+      return acc + (base - paid);
+    }
+    return acc;
   }, 0);
 
   const currentDebt = Number(activeStudent?.outstandingBalance || 0);
@@ -365,11 +369,15 @@ export default function PagosPage() {
     if (!firestore || !paymentToEdit || !activeStudentId || !activeStudent) return
 
     try {
+      // Revert the debt delta
       const paymentItems = paymentToEdit.items || []
       const pDelta = paymentItems.reduce((acc: number, item: any) => {
-        const base = item.type === 'fee' ? (item.baseAmount || 0) : (item.amount || 0)
-        const paid = item.amount || 0
-        return acc + (base - paid)
+        if (item.type === 'fee') {
+          const base = item.baseAmount || 0
+          const paid = item.amount || 0
+          return acc + (base - paid)
+        }
+        return acc;
       }, 0)
 
       const revertedBalance = Math.max(0, (activeStudent.outstandingBalance || 0) - pDelta)

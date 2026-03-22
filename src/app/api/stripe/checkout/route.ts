@@ -5,8 +5,8 @@ import { initializeFirebase } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 /**
- * Creates a Stripe Checkout Session for a student to pay their outstanding balance.
- * Supports Multi-tenant routing via Stripe Connect if the school has a stripeAccountId.
+ * Creates a Stripe Checkout Session for a student.
+ * Multi-tenant routing: Sends money to the school's Connected Account if available.
  */
 export async function POST(req: Request) {
   try {
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     const schoolData = schoolSnap.data();
     const stripeAccountId = schoolData?.stripeAccountId;
 
-    // Amount must be in cents for Stripe (MXN uses 2 decimals)
+    // Amount in cents
     const amountInCents = Math.round(amount * 100);
 
     const sessionOptions: any = {
@@ -39,8 +39,8 @@ export async function POST(req: Request) {
           price_data: {
             currency: 'mxn',
             product_data: {
-              name: `Pago de Colegiatura / Servicios Escolares - ${studentName}`,
-              description: `Abono a cuenta del alumno con ID: ${studentId}`,
+              name: `Pago Escolar - ${studentName}`,
+              description: `Abono a cuenta del alumno ID: ${studentId}`,
             },
             unit_amount: amountInCents,
           },
@@ -55,11 +55,10 @@ export async function POST(req: Request) {
         studentId,
         schoolId,
         studentName,
-        paymentType: 'online_stripe',
       },
     };
 
-    // Si la escuela tiene su propia cuenta de Stripe, enviamos el dinero ahí (Stripe Connect)
+    // Routing money to the Tenant (School's Account) via Stripe Connect
     if (stripeAccountId) {
       sessionOptions.transfer_data = {
         destination: stripeAccountId,
@@ -70,7 +69,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
-    console.error('Error creating Stripe session:', error);
+    console.error('Stripe Checkout Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
